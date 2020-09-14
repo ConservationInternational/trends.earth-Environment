@@ -33,7 +33,7 @@ RUN conda create -n env python=3.8
 RUN echo "source activate env" > ~/.bashrc
 ENV PATH /opt/conda/envs/env/bin:$PATH
 
-RUN conda install -n env -c conda-forge earthengine-api==0.1.215
+RUN conda install -n env -c conda-forge earthengine-api==0.1.232
 RUN conda install -n env -c conda-forge gdal
 RUN conda install -n env requests
 

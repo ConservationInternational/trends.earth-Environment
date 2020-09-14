@@ -4,9 +4,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import ee
 import os
 import logging
+
+import ee
+from google.cloud import storage
 
 from gefcore.loggers import get_logger_by_env
 from gefcore.api import patch_execution
@@ -26,14 +28,13 @@ logging.basicConfig(
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV = os.getenv('ENV')
 
-logging.info('Authenticating earth engine')
-key_file=os.path.join(PROJECT_DIR, 'service_account.json')
+logging.info('Authenticating earth engine...')
 gee_credentials = ee.ServiceAccountCredentials(
     email=None,
     key_file=os.path.join(PROJECT_DIR, 'service_account.json')
 )
 ee.Initialize(gee_credentials)
-logging.info('Authenticated.')
+logging.info('Authenticated with earth engine.')
 
 def change_status_ticket(status):
     """Ticket status changer"""
