@@ -27,13 +27,20 @@ logging.basicConfig(
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV = os.getenv('ENV')
+PROJECT = os.getenv('GOOGLE_PROJECT_ID')
+GEE_ENDPOINT = os.getenv('GEE_ENDPOINT')
 
 logging.info('Authenticating earth engine...')
 gee_credentials = ee.ServiceAccountCredentials(
     email=None,
     key_file=os.path.join(PROJECT_DIR, 'service_account.json')
 )
-ee.Initialize(gee_credentials)
+
+ee.Initialize(
+    credentials=gee_credentials,
+    project=PROJECT,
+    opt_url=GEE_ENDPOINT
+)
 logging.info('Authenticated with earth engine.')
 
 def change_status_ticket(status):

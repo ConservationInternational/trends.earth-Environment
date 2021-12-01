@@ -44,4 +44,12 @@ if len(sys.argv) > 1:
     params = params.decode('utf-8')
     params = json.loads(params)
 
+# TODO: read parameters from a json file rather than from sys.argv
+# params_file = os.path.join(
+#     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+#     'params.json'
+# )
+# with open(params_file, 'r') as f:
+#     params = json.load(f)
+
 run(params)
