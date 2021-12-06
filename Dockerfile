@@ -1,4 +1,4 @@
-FROM continuumio/miniconda3
+FROM continuumio/miniconda3:4.8.3
 MAINTAINER Alex Zvoleff azvoleff@conservation.org
 
 ENV USER script
