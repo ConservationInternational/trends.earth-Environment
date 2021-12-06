@@ -36,11 +36,13 @@ gee_credentials = ee.ServiceAccountCredentials(
     key_file=os.path.join(PROJECT_DIR, 'service_account.json')
 )
 
-ee.Initialize(
-    credentials=gee_credentials,
-    project=PROJECT,
-    opt_url=GEE_ENDPOINT
-)
+ee.Initialize(gee_credentials)
+
+# ee.Initialize(
+#     credentials=gee_credentials,
+#     project=PROJECT,
+#     opt_url=GEE_ENDPOINT
+# )
 logging.info('Authenticated with earth engine.')
 
 def change_status_ticket(status):
