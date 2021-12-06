@@ -11,7 +11,7 @@ import ee
 from google.cloud import storage
 
 from gefcore.loggers import get_logger_by_env
-from gefcore.api import patch_execution
+from gefcore.api import patch_execution, get_params
 
 # Silence warning about file_cache being unavailable. See more here:
 # https://github.com/googleapis/google-api-python-client/issues/299
@@ -59,13 +59,14 @@ def send_result(results):
         logging.info(results)
 
 
-def run(params):
+def run():
     """Runs the user script"""
     try:
         logging.debug('Creating logger')
         # Getting logger
         logger = get_logger_by_env()
         change_status_ticket('RUNNING')  # running
+        params = get_params()
         params['ENV'] = os.getenv('ENV', None)
         params['EXECUTION_ID'] = os.getenv('EXECUTION_ID', None)
         from gefcore.script import main
