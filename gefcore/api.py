@@ -1,6 +1,12 @@
 """API """
 
 import os
+import tempfile
+import json
+import gzip
+from pathlib import Path
+
+import boto3
 
 import requests
 
@@ -8,6 +14,8 @@ API_URL = os.getenv('API_URL', None)
 EMAIL = os.getenv('API_USER', None)
 PASSWORD = os.getenv('API_PASSWORD', None)
 EXECUTION_ID = os.getenv('EXECUTION_ID', None)
+PARAMS_S3_PREFIX = os.getenv('PARAMS_S3_PREFIX', None)
+PARAMS_S3_BUCKET = os.getenv('PARAMS_S3_BUCKET', None)
 
 
 def login():
@@ -25,16 +33,26 @@ def login():
     return response.json()['access_token']
 
 
-def get_params():
-    jwt = login()
-    response = requests.get(API_URL + '/api/v1/execution/' + EXECUTION_ID,
-                            headers={'Authorization': 'Bearer ' + jwt})
+def _get_params_from_s3(out_path):
+    object_name = PARAMS_S3_PREFIX + '/' + EXECUTION_ID + '.json.gz'
+    s3 = boto3.client('s3')
+    s3.download_file(PARAMS_S3_BUCKET, object_name, str(out_path))
 
-    if response.status_code != 200:
+
+def get_params():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        params_gz_file = Path(temp_dir) / (str(EXECUTION_ID) + '.json.gz')
+        _get_params_from_s3(params_gz_file)
+        with gzip.open(params_gz_file, 'r') as fin:
+            json_bytes = fin.read() 
+            json_str = json_bytes.decode('utf-8')
+            params = json.loads(json_str)    
+
+    if params is None:
         print('Error getting parameters')
         return None
     else:
-        return response.json()['data']['params']
+        return params
 
 
 def patch_execution(json):
