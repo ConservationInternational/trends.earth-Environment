@@ -6,6 +6,10 @@ import json
 import gzip
 from pathlib import Path
 
+import rollbar
+
+rollbar.init(os.getenv('ROLLBAR_SCRIPT_TOKEN'), os.getenv('ENV'))
+
 import boto3
 
 import requests
@@ -28,6 +32,8 @@ def login():
     if response.status_code != 200:
         print('Error login.')
         print(response)
+        rollbar.report_message('Error logging in',
+                               extra_data={'response': response.json()})
         raise Exception('Error logging in')
 
     return response.json()['access_token']
@@ -50,6 +56,7 @@ def get_params():
 
     if params is None:
         print('Error getting parameters')
+        rollbar.report_message('Error getting parameters')
         return None
     else:
         return params
@@ -63,6 +70,8 @@ def patch_execution(json):
 
     if response.status_code != 200:
         print('Error patching execution')
+        rollbar.report_message('Error patching execution',
+                               extra_data={'response': response.json()})
         print(response)
 
 
@@ -74,5 +83,7 @@ def save_log(json):
                              headers={'Authorization': 'Bearer ' + jwt})
 
     if response.status_code != 200:
-        print('Error doing request.')
+        print('Error saving log')
+        rollbar.report_message('Error saving log',
+                               extra_data={'response': response.json()})
         print(response)

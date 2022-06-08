@@ -6,6 +6,10 @@ from __future__ import print_function
 import logging
 import os
 
+import rollbar
+
+rollbar.init(os.getenv("ROLLBAR_SCRIPT_TOKEN"), os.getenv("ENV"))
+
 import ee
 from google.cloud import storage
 
@@ -75,4 +79,5 @@ def run():
     except Exception as error:
         change_status_ticket("FAILED")  # failed
         logger.error(str(error))
+        rollbar.report_exc_info()
         raise error
