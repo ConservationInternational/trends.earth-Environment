@@ -24,7 +24,7 @@ logging.getLogger("urllib3").setLevel(logging.ERROR)
 logging.getLogger("google_auth_httplib2").setLevel(logging.ERROR)
 
 logging.basicConfig(
-    level="DEBUG",
+    level="ERROR",
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     datefmt="%Y%m%d-%H:%M%p",
 )
