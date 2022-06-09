@@ -20,7 +20,7 @@ logger.addHandler(handler)
 
 rollbar.init(os.getenv('ROLLBAR_SCRIPT_TOKEN'), os.getenv('ENV'))
 rollbar_handler = RollbarHandler()
-rollbar_handler.setLevel(logging.ERROR)
+rollbar_handler.setLevel(logging.INFO)
 logger.addHandler(rollbar_handler)
 
 
