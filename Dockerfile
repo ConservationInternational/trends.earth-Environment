@@ -1,4 +1,4 @@
-FROM osgeo/gdal:ubuntu-small-3.5.0
+FROM ghcr.io/osgeo/gdal:ubuntu-small-3.9.1
 MAINTAINER Alex Zvoleff azvoleff@conservation.org
 
 ENV USER script
@@ -6,11 +6,15 @@ USER root
 RUN groupadd -r $USER && useradd -r -g $USER $USER
 
 RUN apt-get update && \
-    apt-get install -yq locales git python3-boto3 python3-pip \
-        apt-transport-https ca-certificates wget gfortran python3-dev python3-pip && \
+    apt-get install -yq locales git \
+        apt-transport-https ca-certificates wget gfortran \
+        python3-dev python3-venv && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*  && \
     mkdir -p /project
+
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
 ENV LANG en_US.UTF-8  ENV LANGUAGE en_US:en  ENV LC_ALL en_US.UTF-8

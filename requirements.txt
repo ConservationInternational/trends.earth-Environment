@@ -1,7 +1,7 @@
-earthengine-api==0.1.312
-rollbar==0.16.3
-numba==0.55.2
-numpy
+earthengine-api==0.1.414
+rollbar==1.0.0
+numba==0.60.0
+numpy==2.0.1
 requests
 boto3
 backoff
