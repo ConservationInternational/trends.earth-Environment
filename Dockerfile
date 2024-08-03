@@ -8,7 +8,7 @@ RUN groupadd -r $USER && useradd -r -g $USER $USER
 RUN apt-get update && \
     apt-get install -yq locales git \
         apt-transport-https ca-certificates wget gfortran \
-        python3-dev python3-venv && \
+        python3-dev python3-venv g++ && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*  && \
     mkdir -p /project
