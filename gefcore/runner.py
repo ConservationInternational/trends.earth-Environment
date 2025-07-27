@@ -1,4 +1,5 @@
 """GEF CORE RUNNER"""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -7,15 +8,13 @@ import logging
 import os
 
 import rollbar
-
-rollbar.init(os.getenv("ROLLBAR_SCRIPT_TOKEN"), os.getenv("ENV"))
-
 import ee
-from google.cloud import storage
 
 from gefcore.api import get_params
 from gefcore.api import patch_execution
 from gefcore.loggers import get_logger_by_env
+
+rollbar.init(os.getenv("ROLLBAR_SCRIPT_TOKEN"), os.getenv("ENV"))
 
 # Silence warning about file_cache being unavailable. See more here:
 # https://github.com/googleapis/google-api-python-client/issues/299

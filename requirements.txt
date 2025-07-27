@@ -1,5 +1,5 @@
 earthengine-api==0.1.414
-rollbar==1.0.0
+rollbar==1.1.2
 numba==0.60.0
 numpy==2.0.1
 requests

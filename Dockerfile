@@ -1,4 +1,4 @@
-FROM ghcr.io/osgeo/gdal:ubuntu-small-3.9.1
+FROM ghcr.io/osgeo/gdal:ubuntu-small-3.11.3
 MAINTAINER Alex Zvoleff azvoleff@conservation.org
 
 ENV USER script
