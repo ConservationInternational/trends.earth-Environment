@@ -23,7 +23,7 @@ logging.getLogger("urllib3").setLevel(logging.ERROR)
 logging.getLogger("google_auth_httplib2").setLevel(logging.ERROR)
 
 logging.basicConfig(
-    level="ERROR",
+    level="INFO",
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     datefmt="%Y%m%d-%H:%M%p",
 )
@@ -36,7 +36,9 @@ GEE_ENDPOINT = os.getenv("GEE_ENDPOINT")
 
 def initialize_earth_engine():
     """Initialize Google Earth Engine with service account credentials."""
+    logging.info("Starting Earth Engine initialization...")
     service_account_path = os.path.join(PROJECT_DIR, "service_account.json")
+    logging.info(f"Looking for service account file at: {service_account_path}")
 
     if not os.path.exists(service_account_path):
         error_msg = f"Service account file not found at {service_account_path}. Google Earth Engine authentication is required."
@@ -52,6 +54,7 @@ def initialize_earth_engine():
         gee_credentials = ee.ServiceAccountCredentials(
             email=None, key_file=service_account_path
         )
+        logging.info("Earth Engine credentials created, initializing...")
         ee.Initialize(gee_credentials)
         # ee.Initialize(credentials=gee_credentials, project=GOOGLE_PROJECT_ID, opt_url=GEE_ENDPOINT)
         logging.info("Authenticated with earth engine.")
@@ -83,24 +86,34 @@ def send_result(results):
 
 def run():
     """Runs the user script"""
+    logging.info("Starting run() function")
     try:
+        logging.info("About to initialize Earth Engine...")
         # Initialize Earth Engine if needed
         initialize_earth_engine()
+        logging.info("Earth Engine initialization completed successfully")
 
         logging.debug("Creating logger")
         # Getting logger
         logger = get_logger_by_env()
+        logging.info("About to change status to RUNNING...")
         change_status_ticket("RUNNING")  # running
+        logging.info("Status changed to RUNNING, now getting parameters...")
         params = get_params()
+        logging.info("Parameters retrieved successfully")
         params["ENV"] = os.getenv("ENV", None)
         params["EXECUTION_ID"] = os.getenv("EXECUTION_ID", None)
 
         if main is None:
             raise ImportError("gefcore.script.main module not found")
 
+        logging.info("About to run main script...")
         result = main.run(params, logger)
+        logging.info("Main script completed, sending results...")
         send_result(result)
+        logging.info("Results sent successfully")
     except Exception as error:
+        logging.error(f"Error in run() function: {error}")
         change_status_ticket("FAILED")  # failed
         logger.error(str(error))
         rollbar.report_exc_info()
