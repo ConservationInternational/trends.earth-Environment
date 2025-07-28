@@ -1,15 +1,10 @@
 """The GEF CORE Module."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import logging
 import os
 import sys
 
 import rollbar
-from gefcore.runner import run
 from rollbar.logger import RollbarHandler
 
 # From:
@@ -36,4 +31,15 @@ sys.excepthook = handle_exception
 
 logger.setLevel(logging.DEBUG)
 
-run()
+# Only run if not in test environment
+if os.getenv("ENV") != "test":
+    try:
+        from gefcore.runner import run
+
+        run()
+    except ImportError as e:
+        logger.warning(f"Could not import runner: {e}")
+    except FileNotFoundError as e:
+        logger.warning(f"Service account file not found: {e}")
+    except Exception as e:
+        logger.error(f"Error running main script: {e}")

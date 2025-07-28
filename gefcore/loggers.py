@@ -3,11 +3,10 @@
 import logging
 import os
 
-from gefcore.api import patch_execution
-from gefcore.api import save_log
+from gefcore.api import patch_execution, save_log
 
 
-class LocalLogger(object):
+class LocalLogger:
     """Logger implementation for local (dev environment)"""
 
     @staticmethod
@@ -36,7 +35,7 @@ class LocalLogger(object):
         LocalLogger.info("Progress " + str(progress) + "%")
 
 
-class ServerLogger(object):
+class ServerLogger:
     """Logger implementation for server (prod environment)"""
 
     @staticmethod

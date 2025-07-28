@@ -1,18 +1,18 @@
 """GEF CORE RUNNER"""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import logging
 import os
 
-import rollbar
 import ee
+import rollbar
 
-from gefcore.api import get_params
-from gefcore.api import patch_execution
+from gefcore.api import get_params, patch_execution
 from gefcore.loggers import get_logger_by_env
+
+try:
+    from gefcore.script import main
+except ImportError:
+    main = None
 
 rollbar.init(os.getenv("ROLLBAR_SCRIPT_TOKEN"), os.getenv("ENV"))
 
@@ -33,15 +33,35 @@ ENV = os.getenv("ENV")
 GOOGLE_PROJECT_ID = os.getenv("GOOGLE_PROJECT_ID")
 GEE_ENDPOINT = os.getenv("GEE_ENDPOINT")
 
-logging.info("Authenticating earth engine...")
-gee_credentials = ee.ServiceAccountCredentials(
-    email=None, key_file=os.path.join(PROJECT_DIR, "service_account.json")
-)
 
-ee.Initialize(gee_credentials)
+def initialize_earth_engine():
+    """Initialize Google Earth Engine with service account credentials."""
+    service_account_path = os.path.join(PROJECT_DIR, "service_account.json")
 
-# ee.Initialize(credentials=gee_credentials, project=GOOGLE_PROJECT_ID, opt_url=GEE_ENDPOINT)
-logging.info("Authenticated with earth engine.")
+    if not os.path.exists(service_account_path):
+        error_msg = f"Service account file not found at {service_account_path}. Google Earth Engine authentication is required."
+        logging.error(error_msg)
+        rollbar.report_message(
+            "Missing GEE service account file",
+            extra_data={"service_account_path": service_account_path},
+        )
+        raise FileNotFoundError(error_msg)
+
+    try:
+        logging.info("Authenticating earth engine...")
+        gee_credentials = ee.ServiceAccountCredentials(
+            email=None, key_file=service_account_path
+        )
+        ee.Initialize(gee_credentials)
+        # ee.Initialize(credentials=gee_credentials, project=GOOGLE_PROJECT_ID, opt_url=GEE_ENDPOINT)
+        logging.info("Authenticated with earth engine.")
+    except Exception as e:
+        error_msg = f"Failed to initialize Earth Engine: {e}"
+        logging.error(error_msg)
+        rollbar.report_exc_info(
+            extra_data={"service_account_path": service_account_path}
+        )
+        raise
 
 
 def change_status_ticket(status):
@@ -64,6 +84,9 @@ def send_result(results):
 def run():
     """Runs the user script"""
     try:
+        # Initialize Earth Engine if needed
+        initialize_earth_engine()
+
         logging.debug("Creating logger")
         # Getting logger
         logger = get_logger_by_env()
@@ -71,7 +94,9 @@ def run():
         params = get_params()
         params["ENV"] = os.getenv("ENV", None)
         params["EXECUTION_ID"] = os.getenv("EXECUTION_ID", None)
-        from gefcore.script import main
+
+        if main is None:
+            raise ImportError("gefcore.script.main module not found")
 
         result = main.run(params, logger)
         send_result(result)
