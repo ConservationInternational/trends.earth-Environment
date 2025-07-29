@@ -111,6 +111,11 @@ EXECUTION_ID = os.getenv("EXECUTION_ID", None)
 PARAMS_S3_PREFIX = os.getenv("PARAMS_S3_PREFIX", None)
 PARAMS_S3_BUCKET = os.getenv("PARAMS_S3_BUCKET", None)
 
+# Token storage - store both access and refresh tokens with expiration tracking
+_access_token = None
+_refresh_token = None
+_token_expires_at = None
+
 
 def retry_api_call(max_duration_minutes=30):
     """
@@ -174,12 +179,202 @@ def retry_api_call(max_duration_minutes=30):
 
 @retry_api_call(max_duration_minutes=10)
 def login():
+    """
+    Authenticate with the API and store both access and refresh tokens.
+
+    Returns:
+        str: The access token for immediate use
+    """
+    global _access_token, _refresh_token, _token_expires_at
+
     response = requests.post(
         API_URL + "/auth", json={"email": EMAIL, "password": PASSWORD}
     )
 
     _handle_api_error(response, "logging in")
-    return response.json()["access_token"]
+
+    response_data = response.json()
+
+    # Store both tokens based on the API response structure
+    _access_token = response_data["access_token"]
+    _refresh_token = response_data.get("refresh_token")
+
+    # Calculate expiration time (subtract 60 seconds as buffer to refresh before expiry)
+    expires_in = response_data.get(
+        "expires_in", 3600
+    )  # Default to 1 hour if not specified
+    _token_expires_at = time.time() + expires_in - 60
+
+    if _refresh_token:
+        logger.debug(
+            f"Successfully stored access and refresh tokens, expires in {expires_in} seconds"
+        )
+    else:
+        logger.warning(
+            "No refresh token found in login response - will fallback to full login for each request"
+        )
+
+    return _access_token
+
+
+@retry_api_call(max_duration_minutes=10)
+def refresh_access_token():
+    """
+    Use the refresh token to get a new access token.
+
+    Returns:
+        str: New access token, or None if refresh failed
+    """
+    global _access_token, _refresh_token, _token_expires_at
+
+    if not _refresh_token:
+        logger.debug("No refresh token available - cannot refresh")
+        return None
+
+    try:
+        # Use the refresh token to get a new access token
+        response = requests.post(
+            API_URL + "/auth/refresh", json={"refresh_token": _refresh_token}
+        )
+
+        if response.status_code == 200:
+            response_data = response.json()
+            _access_token = response_data["access_token"]
+
+            # Calculate new expiration time (subtract 60 seconds as buffer)
+            expires_in = response_data.get(
+                "expires_in", 3600
+            )  # Default to 1 hour if not specified
+            _token_expires_at = time.time() + expires_in - 60
+
+            # Note: refresh token is reused (not rotated) based on the API response structure
+            logger.debug(
+                f"Successfully refreshed access token, expires in {expires_in} seconds"
+            )
+            return _access_token
+        else:
+            # Refresh failed - clear stored tokens and fallback to login
+            logger.warning(
+                f"Token refresh failed with status {response.status_code}: {response.text[:200]}"
+            )
+            _access_token = None
+            _refresh_token = None
+            _token_expires_at = None
+            return None
+
+    except Exception as e:
+        logger.warning(f"Token refresh failed with exception: {str(e)}")
+        _access_token = None
+        _refresh_token = None
+        _token_expires_at = None
+        return None
+
+
+def get_token_status():
+    """
+    Get the current status of stored tokens for debugging purposes.
+
+    Returns:
+        dict: Token status information
+    """
+    global _access_token, _refresh_token, _token_expires_at
+
+    status = {
+        "has_access_token": _access_token is not None,
+        "has_refresh_token": _refresh_token is not None,
+        "token_expires_at": _token_expires_at,
+        "is_expired": is_token_expired() if _token_expires_at else None,
+    }
+
+    if _token_expires_at:
+        time_until_expiry = _token_expires_at - time.time()
+        status["seconds_until_expiry"] = max(0, int(time_until_expiry))
+
+    return status
+
+
+def is_token_expired():
+    """
+    Check if the current access token is expired or about to expire.
+
+    Returns:
+        bool: True if token is expired or will expire soon
+    """
+    global _token_expires_at
+
+    if _token_expires_at is None:
+        return True
+
+    # Consider token expired if it expires in the next 10 seconds
+    return time.time() >= (_token_expires_at - 10)
+
+
+def get_access_token():
+    """
+    Get a valid access token, using refresh token if available or logging in if needed.
+    Only refreshes the token if it's expired or about to expire.
+
+    Returns:
+        str: Valid access token
+    """
+    global _access_token, _refresh_token, _token_expires_at
+
+    # If we have a valid, non-expired access token, return it
+    if _access_token and not is_token_expired():
+        logger.debug("Using existing valid access token")
+        return _access_token
+
+    # If token is expired but we have a refresh token, try to refresh
+    if _access_token and _refresh_token and is_token_expired():
+        logger.debug("Access token expired, attempting refresh")
+        refreshed_token = refresh_access_token()
+        if refreshed_token:
+            return refreshed_token
+
+    # If refresh failed or we don't have tokens, perform full login
+    logger.debug("Performing full login to get new tokens")
+    return login()
+
+
+def make_authenticated_request(method, url, **kwargs):
+    """
+    Make an authenticated API request with automatic token refresh on 401 errors.
+
+    Args:
+        method (str): HTTP method (GET, POST, PATCH, etc.)
+        url (str): Full URL for the request
+        **kwargs: Additional arguments to pass to requests
+
+    Returns:
+        requests.Response: The response object
+    """
+    # Ensure we have an Authorization header
+    if "headers" not in kwargs:
+        kwargs["headers"] = {}
+
+    # First attempt with current token
+    jwt = get_access_token()
+    kwargs["headers"]["Authorization"] = f"Bearer {jwt}"
+
+    response = requests.request(method, url, **kwargs)
+
+    # If we get 401 (Unauthorized), try refreshing the token once
+    if response.status_code == 401:
+        logger.debug("Received 401 error, attempting token refresh")
+
+        # Clear current tokens and get fresh ones
+        global _access_token, _refresh_token, _token_expires_at
+        _access_token = None
+        _refresh_token = None
+        _token_expires_at = None
+
+        jwt = get_access_token()
+        kwargs["headers"]["Authorization"] = f"Bearer {jwt}"
+
+        # Retry the request with new token
+        response = requests.request(method, url, **kwargs)
+
+    return response
 
 
 @retry_api_call(max_duration_minutes=10)
@@ -209,11 +404,8 @@ def get_params():
 
 @retry_api_call(max_duration_minutes=10)
 def patch_execution(json):
-    jwt = login()
-    response = requests.patch(
-        API_URL + "/api/v1/execution/" + EXECUTION_ID,
-        json=json,
-        headers={"Authorization": "Bearer " + jwt},
+    response = make_authenticated_request(
+        "PATCH", API_URL + "/api/v1/execution/" + EXECUTION_ID, json=json
     )
 
     _handle_api_error(
@@ -223,11 +415,8 @@ def patch_execution(json):
 
 @retry_api_call(max_duration_minutes=10)
 def save_log(json):
-    jwt = login()
-    response = requests.post(
-        API_URL + "/api/v1/execution/" + EXECUTION_ID + "/log",
-        json=json,
-        headers={"Authorization": "Bearer " + jwt},
+    response = make_authenticated_request(
+        "POST", API_URL + "/api/v1/execution/" + EXECUTION_ID + "/log", json=json
     )
 
     _handle_api_error(

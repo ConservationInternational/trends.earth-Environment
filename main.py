@@ -1,1 +1,1 @@
-import gefcore
+import gefcore  # noqa: F401
