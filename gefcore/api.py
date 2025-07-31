@@ -116,13 +116,22 @@ _access_token = None
 _refresh_token = None
 _token_expires_at = None
 
+# Circuit breaker for authentication failures
+_auth_failure_count = 0
+_auth_circuit_breaker_until = None
+_max_auth_failures = 5
+_circuit_breaker_duration = 300  # 5 minutes
+_last_circuit_breaker_rollbar_report = None
+_circuit_breaker_rollbar_cooldown = 120  # Only report to rollbar once every 2 minutes
 
-def retry_api_call(max_duration_minutes=30):
+
+def retry_api_call(max_duration_minutes=30, max_attempts=None):
     """
     Decorator to retry API calls with exponential backoff for up to max_duration_minutes.
 
     Args:
         max_duration_minutes (int): Maximum time to retry in minutes (default: 30)
+        max_attempts (int): Maximum number of retry attempts (default: None for no limit)
 
     Returns:
         Decorated function that will retry on failure
@@ -143,6 +152,20 @@ def retry_api_call(max_duration_minutes=30):
                     attempt += 1
                     elapsed_time = time.time() - start_time
 
+                    # Check max attempts limit first
+                    if max_attempts and attempt >= max_attempts:
+                        error_msg = f"Max retry attempts ({max_attempts}) exceeded for {func.__name__}"
+                        logger.error(error_msg)
+                        rollbar.report_message(
+                            f"Max retry attempts exceeded for {func.__name__}",
+                            extra_data={
+                                "attempt": attempt,
+                                "elapsed_time": elapsed_time,
+                                "error": str(e),
+                            },
+                        )
+                        raise e
+
                     # Calculate delay with exponential backoff (capped at 120 seconds)
                     delay = min(base_delay * (2 ** (attempt - 1)), 120)
 
@@ -155,6 +178,20 @@ def retry_api_call(max_duration_minutes=30):
                             extra_data={
                                 "attempt": attempt,
                                 "elapsed_time": elapsed_time,
+                                "error": str(e),
+                            },
+                        )
+                        raise e
+
+                    # Don't retry on authentication errors (401, 403) for login function
+                    if func.__name__ == "login" and "401" in str(e) or "403" in str(e):
+                        error_msg = f"Authentication failed for {func.__name__} - not retrying auth errors"
+                        logger.error(error_msg)
+                        rollbar.report_message(
+                            f"Authentication error - not retrying {func.__name__}",
+                            extra_data={
+                                "attempt": attempt,
+                                "error": str(e),
                             },
                         )
                         raise e
@@ -177,7 +214,7 @@ def retry_api_call(max_duration_minutes=30):
     return decorator
 
 
-@retry_api_call(max_duration_minutes=10)
+@retry_api_call(max_duration_minutes=3, max_attempts=5)
 def login():
     """
     Authenticate with the API and store both access and refresh tokens.
@@ -186,38 +223,89 @@ def login():
         str: The access token for immediate use
     """
     global _access_token, _refresh_token, _token_expires_at
+    global \
+        _auth_failure_count, \
+        _auth_circuit_breaker_until, \
+        _last_circuit_breaker_rollbar_report
 
-    response = requests.post(
-        API_URL + "/auth", json={"email": EMAIL, "password": PASSWORD}
-    )
-
-    _handle_api_error(response, "logging in")
-
-    response_data = response.json()
-
-    # Store both tokens based on the API response structure
-    _access_token = response_data["access_token"]
-    _refresh_token = response_data.get("refresh_token")
-
-    # Calculate expiration time (subtract 60 seconds as buffer to refresh before expiry)
-    expires_in = response_data.get(
-        "expires_in", 3600
-    )  # Default to 1 hour if not specified
-    _token_expires_at = time.time() + expires_in - 60
-
-    if _refresh_token:
-        logger.debug(
-            f"Successfully stored access and refresh tokens, expires in {expires_in} seconds"
+    # Check circuit breaker
+    if _auth_circuit_breaker_until and time.time() < _auth_circuit_breaker_until:
+        remaining = int(_auth_circuit_breaker_until - time.time())
+        error_msg = (
+            f"Authentication circuit breaker active for {remaining} more seconds"
         )
-    else:
-        logger.warning(
-            "No refresh token found in login response - will fallback to full login for each request"
+        logger.error(error_msg)
+
+        # Only report to Rollbar if we haven't reported recently (prevent spam)
+        current_time = time.time()
+        if (
+            _last_circuit_breaker_rollbar_report is None
+            or current_time - _last_circuit_breaker_rollbar_report
+            >= _circuit_breaker_rollbar_cooldown
+        ):
+            rollbar.report_message(
+                "Authentication circuit breaker active",
+                extra_data={"remaining_seconds": remaining},
+            )
+            _last_circuit_breaker_rollbar_report = current_time
+
+        raise Exception(error_msg)
+
+    try:
+        response = requests.post(
+            API_URL + "/auth", json={"email": EMAIL, "password": PASSWORD}
         )
 
-    return _access_token
+        _handle_api_error(response, "logging in")
+
+        response_data = response.json()
+
+        # Store both tokens based on the API response structure
+        _access_token = response_data["access_token"]
+        _refresh_token = response_data.get("refresh_token")
+
+        # Calculate expiration time (subtract 60 seconds as buffer to refresh before expiry)
+        expires_in = response_data.get(
+            "expires_in", 3600
+        )  # Default to 1 hour if not specified
+        _token_expires_at = time.time() + expires_in - 60
+
+        # Reset circuit breaker on successful login
+        _auth_failure_count = 0
+        _auth_circuit_breaker_until = None
+
+        if _refresh_token:
+            logger.debug(
+                f"Successfully stored access and refresh tokens, expires in {expires_in} seconds"
+            )
+        else:
+            logger.warning(
+                "No refresh token found in login response - will fallback to full login for each request"
+            )
+
+        return _access_token
+
+    except Exception as e:
+        # Increment failure count and activate circuit breaker if needed
+        _auth_failure_count += 1
+
+        if _auth_failure_count >= _max_auth_failures:
+            _auth_circuit_breaker_until = time.time() + _circuit_breaker_duration
+            logger.error(
+                f"Authentication circuit breaker activated after {_auth_failure_count} failures"
+            )
+            rollbar.report_message(
+                "Authentication circuit breaker activated",
+                extra_data={
+                    "failure_count": _auth_failure_count,
+                    "circuit_breaker_duration": _circuit_breaker_duration,
+                },
+            )
+
+        raise e
 
 
-@retry_api_call(max_duration_minutes=10)
+@retry_api_call(max_duration_minutes=2, max_attempts=3)
 def refresh_access_token():
     """
     Use the refresh token to get a new access token.
@@ -368,11 +456,22 @@ def make_authenticated_request(method, url, **kwargs):
         _refresh_token = None
         _token_expires_at = None
 
-        jwt = get_access_token()
-        kwargs["headers"]["Authorization"] = f"Bearer {jwt}"
+        # Try to get new token, but don't let this cause infinite retries
+        try:
+            jwt = get_access_token()
+            kwargs["headers"]["Authorization"] = f"Bearer {jwt}"
 
-        # Retry the request with new token
-        response = requests.request(method, url, **kwargs)
+            # Retry the request with new token
+            response = requests.request(method, url, **kwargs)
+        except Exception as e:
+            # If authentication completely fails, don't retry - return the original 401
+            logger.error(f"Failed to refresh authentication after 401 error: {str(e)}")
+            rollbar.report_message(
+                "Authentication refresh failed after 401",
+                extra_data={"original_url": url, "error": str(e)},
+            )
+            # Return the original 401 response instead of retrying indefinitely
+            pass
 
     return response
 
