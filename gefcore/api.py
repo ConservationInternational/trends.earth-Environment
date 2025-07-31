@@ -124,6 +124,45 @@ _circuit_breaker_duration = 300  # 5 minutes
 _last_circuit_breaker_rollbar_report = None
 _circuit_breaker_rollbar_cooldown = 120  # Only report to rollbar once every 2 minutes
 
+# Rate limiting for rollbar reports in retry logic
+_retry_rollbar_reports = {}  # {function_name: {"last_report": timestamp, "count": count}}
+_retry_rollbar_cooldown = 300  # 5 minutes between retry rollbar reports per function
+_max_retry_rollbar_reports = 5  # Max reports per function per cooldown period
+
+
+def _should_report_retry_to_rollbar(func_name):
+    """
+    Check if we should report a retry failure to rollbar based on rate limiting.
+
+    Args:
+        func_name (str): Name of the function being retried
+
+    Returns:
+        bool: True if we should report to rollbar, False if rate limited
+    """
+    global _retry_rollbar_reports
+
+    current_time = time.time()
+
+    if func_name not in _retry_rollbar_reports:
+        _retry_rollbar_reports[func_name] = {"last_report": 0, "count": 0}
+
+    report_data = _retry_rollbar_reports[func_name]
+
+    # Reset count if cooldown period has passed
+    if current_time - report_data["last_report"] > _retry_rollbar_cooldown:
+        report_data["count"] = 0
+
+    # Check if we've exceeded the max reports for this period
+    if report_data["count"] >= _max_retry_rollbar_reports:
+        return False
+
+    # Update the tracking data
+    report_data["last_report"] = current_time
+    report_data["count"] += 1
+
+    return True
+
 
 def retry_api_call(max_duration_minutes=30, max_attempts=None):
     """
@@ -156,14 +195,15 @@ def retry_api_call(max_duration_minutes=30, max_attempts=None):
                     if max_attempts and attempt >= max_attempts:
                         error_msg = f"Max retry attempts ({max_attempts}) exceeded for {func.__name__}"
                         logger.error(error_msg)
-                        rollbar.report_message(
-                            f"Max retry attempts exceeded for {func.__name__}",
-                            extra_data={
-                                "attempt": attempt,
-                                "elapsed_time": elapsed_time,
-                                "error": str(e),
-                            },
-                        )
+                        if _should_report_retry_to_rollbar(func.__name__):
+                            rollbar.report_message(
+                                f"Max retry attempts exceeded for {func.__name__}",
+                                extra_data={
+                                    "attempt": attempt,
+                                    "elapsed_time": elapsed_time,
+                                    "error": str(e),
+                                },
+                            )
                         raise e
 
                     # Calculate delay with exponential backoff (capped at 120 seconds)
@@ -173,39 +213,46 @@ def retry_api_call(max_duration_minutes=30, max_attempts=None):
                     if elapsed_time + delay > max_duration_seconds:
                         error_msg = f"Max retry duration of {max_duration_minutes} minutes exceeded"
                         logger.error(error_msg)
-                        rollbar.report_message(
-                            f"Max retry duration exceeded for {func.__name__}",
-                            extra_data={
-                                "attempt": attempt,
-                                "elapsed_time": elapsed_time,
-                                "error": str(e),
-                            },
-                        )
+                        if _should_report_retry_to_rollbar(func.__name__):
+                            rollbar.report_message(
+                                f"Max retry duration exceeded for {func.__name__}",
+                                extra_data={
+                                    "attempt": attempt,
+                                    "elapsed_time": elapsed_time,
+                                    "error": str(e),
+                                },
+                            )
                         raise e
 
                     # Don't retry on authentication errors (401, 403) for login function
                     if func.__name__ == "login" and "401" in str(e) or "403" in str(e):
                         error_msg = f"Authentication failed for {func.__name__} - not retrying auth errors"
                         logger.error(error_msg)
-                        rollbar.report_message(
-                            f"Authentication error - not retrying {func.__name__}",
-                            extra_data={
-                                "attempt": attempt,
-                                "error": str(e),
-                            },
-                        )
+                        if _should_report_retry_to_rollbar(func.__name__):
+                            rollbar.report_message(
+                                f"Authentication error - not retrying {func.__name__}",
+                                extra_data={
+                                    "attempt": attempt,
+                                    "error": str(e),
+                                },
+                            )
                         raise e
 
                     retry_msg = f"API call failed (attempt {attempt}), retrying in {delay} seconds..."
                     logger.warning(retry_msg)
-                    rollbar.report_message(
-                        f"API call retry for {func.__name__}",
-                        extra_data={
-                            "attempt": attempt,
-                            "delay": delay,
-                            "error": str(e),
-                        },
-                    )
+                    # Only report retry attempts to rollbar occasionally to avoid spam
+                    if (
+                        attempt <= 3 or attempt % 5 == 0
+                    ):  # Report first 3 attempts, then every 5th
+                        if _should_report_retry_to_rollbar(func.__name__):
+                            rollbar.report_message(
+                                f"API call retry for {func.__name__}",
+                                extra_data={
+                                    "attempt": attempt,
+                                    "delay": delay,
+                                    "error": str(e),
+                                },
+                            )
 
                     time.sleep(delay)
 
