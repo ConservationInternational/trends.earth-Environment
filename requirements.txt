@@ -2,6 +2,6 @@ earthengine-api==0.1.414
 rollbar==1.1.2
 numba==0.60.0
 numpy==2.0.1
-requests
-boto3
-backoff
+requests==2.32.4
+boto3==1.34.162
+backoff==2.2.1

@@ -19,6 +19,33 @@ rollbar.init(os.getenv("ROLLBAR_SCRIPT_TOKEN"), os.getenv("ENV"))
 logger = logging.getLogger(__name__)
 
 
+def validate_required_env_vars():
+    """
+    Validate that all required environment variables are set.
+
+    Raises:
+        ValueError: If any required environment variable is missing
+    """
+    required_vars = {
+        "API_URL": "API base URL",
+        "API_USER": "API username/email",
+        "API_PASSWORD": "API password",
+        "EXECUTION_ID": "Execution ID",
+        "PARAMS_S3_PREFIX": "S3 parameters prefix",
+        "PARAMS_S3_BUCKET": "S3 parameters bucket",
+    }
+
+    missing_vars = []
+    for var_name, description in required_vars.items():
+        if not os.getenv(var_name):
+            missing_vars.append(f"{var_name} ({description})")
+
+    if missing_vars:
+        error_msg = f"Missing required environment variables: {', '.join(missing_vars)}"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+
 def _create_error_details(response, request_payload=None):
     """
     Create standardized error details dictionary for API response errors.
@@ -30,35 +57,63 @@ def _create_error_details(response, request_payload=None):
     Returns:
         dict: Standardized error details
     """
+    # Sanitize sensitive headers
+    safe_headers = {}
+    sensitive_header_keys = {"authorization", "x-api-key", "cookie", "set-cookie"}
+
+    for key, value in response.headers.items():
+        if key.lower() in sensitive_header_keys:
+            safe_headers[key] = "***REDACTED***"
+        else:
+            safe_headers[key] = value
+
     error_details = {
         "status_code": response.status_code,
         "response_text": response.text[:1000],  # Limit to avoid excessive data
-        "response_headers": dict(response.headers),
+        "response_headers": safe_headers,
         "request_url": response.request.url,
         "request_method": response.request.method,
-        "execution_id": EXECUTION_ID,
+        "execution_id": os.getenv("EXECUTION_ID"),
     }
 
     if request_payload is not None:
+        # Sanitize sensitive data from payload
+        sanitized_payload = request_payload
+        if isinstance(request_payload, dict):
+            sanitized_payload = request_payload.copy()
+            sensitive_keys = {
+                "password",
+                "token",
+                "secret",
+                "key",
+                "credential",
+                "auth",
+            }
+            for key in list(sanitized_payload.keys()):
+                if any(
+                    sensitive_word in key.lower() for sensitive_word in sensitive_keys
+                ):
+                    sanitized_payload[key] = "***REDACTED***"
+
         # Convert payload to string to check size
         payload_str = (
-            json.dumps(request_payload)
-            if isinstance(request_payload, dict)
-            else str(request_payload)
+            json.dumps(sanitized_payload)
+            if isinstance(sanitized_payload, dict)
+            else str(sanitized_payload)
         )
 
         # If payload is too large (>5KB), only include keys/structure info
         if len(payload_str) > 5000:
-            if isinstance(request_payload, dict):
-                error_details["request_payload_keys"] = list(request_payload.keys())
+            if isinstance(sanitized_payload, dict):
+                error_details["request_payload_keys"] = list(sanitized_payload.keys())
                 error_details["request_payload_size"] = len(payload_str)
                 error_details["request_payload_truncated"] = True
             else:
                 error_details["request_payload_size"] = len(payload_str)
-                error_details["request_payload_type"] = type(request_payload).__name__
+                error_details["request_payload_type"] = type(sanitized_payload).__name__
                 error_details["request_payload_truncated"] = True
         else:
-            error_details["request_payload"] = request_payload
+            error_details["request_payload"] = sanitized_payload
 
     # Try to get JSON response if possible
     try:
@@ -104,12 +159,18 @@ def _handle_api_error(
         )
 
 
-API_URL = os.getenv("API_URL", None)
-EMAIL = os.getenv("API_USER", None)
-PASSWORD = os.getenv("API_PASSWORD", None)
-EXECUTION_ID = os.getenv("EXECUTION_ID", None)
-PARAMS_S3_PREFIX = os.getenv("PARAMS_S3_PREFIX", None)
-PARAMS_S3_BUCKET = os.getenv("PARAMS_S3_BUCKET", None)
+# Validate environment variables on module import
+validate_required_env_vars()
+
+API_URL = os.getenv("API_URL")
+EMAIL = os.getenv("API_USER")
+PASSWORD = os.getenv("API_PASSWORD")
+EXECUTION_ID = os.getenv("EXECUTION_ID")
+PARAMS_S3_PREFIX = os.getenv("PARAMS_S3_PREFIX")
+PARAMS_S3_BUCKET = os.getenv("PARAMS_S3_BUCKET")
+
+# Default timeout for HTTP requests (in seconds)
+DEFAULT_REQUEST_TIMEOUT = 30
 
 # Token storage - store both access and refresh tokens with expiration tracking
 _access_token = None
@@ -300,7 +361,9 @@ def login():
 
     try:
         response = requests.post(
-            API_URL + "/auth", json={"email": EMAIL, "password": PASSWORD}
+            API_URL + "/auth",
+            json={"email": EMAIL, "password": PASSWORD},
+            timeout=DEFAULT_REQUEST_TIMEOUT,
         )
 
         _handle_api_error(response, "logging in")
@@ -369,7 +432,9 @@ def refresh_access_token():
     try:
         # Use the refresh token to get a new access token
         response = requests.post(
-            API_URL + "/auth/refresh", json={"refresh_token": _refresh_token}
+            API_URL + "/auth/refresh",
+            json={"refresh_token": _refresh_token},
+            timeout=DEFAULT_REQUEST_TIMEOUT,
         )
 
         if response.status_code == 200:
@@ -486,6 +551,10 @@ def make_authenticated_request(method, url, **kwargs):
     # Ensure we have an Authorization header
     if "headers" not in kwargs:
         kwargs["headers"] = {}
+
+    # Set default timeout if not provided
+    if "timeout" not in kwargs:
+        kwargs["timeout"] = DEFAULT_REQUEST_TIMEOUT
 
     # First attempt with current token
     jwt = get_access_token()
