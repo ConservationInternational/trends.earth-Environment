@@ -3,24 +3,30 @@ set -e
 
 echo "Running script"
 
-# Create secure temporary file for service account credentials
-CREDENTIALS_FILE=$(mktemp -t service_account_XXXXXX.json)
+# Define credentials file path
+CREDENTIALS_FILE="/project/service_account.json"
 
-# Ensure file is only readable by owner
+# Decode and write credentials to the file
+echo "$EE_SERVICE_ACCOUNT_JSON" | base64 -d > "$CREDENTIALS_FILE"
+
+# Set permissions
 chmod 600 "$CREDENTIALS_FILE"
 
-# Decode and write credentials to secure temporary file
-echo -e "$EE_SERVICE_ACCOUNT_JSON" | base64 -d > "$CREDENTIALS_FILE"
-
-# Set environment variable to point to secure credentials file
+# Set environment variable for GEE
 export GOOGLE_APPLICATION_CREDENTIALS="$CREDENTIALS_FILE"
 
 # Cleanup function to remove credentials file on exit
 cleanup() {
+    echo "Cleaning up credentials file..."
     if [ -f "$CREDENTIALS_FILE" ]; then
         # Overwrite file content before deletion for extra security
-        dd if=/dev/zero of="$CREDENTIALS_FILE" bs=1024 count=1 2>/dev/null || true
-        rm -f "$CREDENTIALS_FILE"
+        # Using shred if available, otherwise dd
+        if command -v shred &> /dev/null; then
+            shred -u "$CREDENTIALS_FILE"
+        else
+            dd if=/dev/zero of="$CREDENTIALS_FILE" bs=1024 count=1 2>/dev/null || true
+            rm -f "$CREDENTIALS_FILE"
+        fi
     fi
 }
 

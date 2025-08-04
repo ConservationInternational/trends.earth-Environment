@@ -7,7 +7,7 @@ import ee
 import rollbar
 
 from gefcore.api import get_params, patch_execution
-from gefcore.loggers import get_logger_by_env
+from gefcore.loggers import get_logger
 
 try:
     from gefcore.script import main
@@ -86,6 +86,7 @@ def send_result(results):
 
 def run():
     """Runs the user script"""
+    logger = get_logger(__name__)
     logging.info("Starting run() function")
     try:
         logging.info("About to initialize Earth Engine...")
@@ -95,7 +96,6 @@ def run():
 
         logging.debug("Creating logger")
         # Getting logger
-        logger = get_logger_by_env()
         logging.info("About to change status to RUNNING...")
         change_status_ticket("RUNNING")  # running
         logging.info("Status changed to RUNNING, now getting parameters...")
@@ -115,6 +115,7 @@ def run():
     except Exception as error:
         logging.error(f"Error in run() function: {error}")
         change_status_ticket("FAILED")  # failed
-        logger.error(str(error))
+        if logger:
+            logger.error(str(error))
         rollbar.report_exc_info()
         raise error

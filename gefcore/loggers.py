@@ -6,74 +6,52 @@ import os
 from gefcore.api import patch_execution, save_log
 
 
-class LocalLogger:
-    """Logger implementation for local (dev environment)"""
+class ServerLogHandler(logging.Handler):
+    """A logging handler that sends logs to the server via API calls."""
 
-    @staticmethod
-    def debug(text):
-        """Debug Level"""
-        logging.debug(text)
-
-    @staticmethod
-    def info(text):
-        """Info Level"""
-        logging.info(text)
-
-    @staticmethod
-    def warn(text):
-        """Warn Level"""
-        logging.warn(text)
-
-    @staticmethod
-    def error(text):
-        """Error Level"""
-        logging.error(text)
-
-    @staticmethod
-    def send_progress(progress):
-        """Send Progress"""
-        LocalLogger.info("Progress " + str(progress) + "%")
+    def emit(self, record):
+        """Sends the log record to the server."""
+        try:
+            log_entry = {"text": self.format(record), "level": record.levelname}
+            save_log(json=log_entry)
+        except Exception:
+            self.handleError(record)
 
 
-class ServerLogger:
-    """Logger implementation for server (prod environment)"""
+def get_logger(name=None):
+    """
+    Get a logger configured for the current environment (dev or prod).
 
-    @staticmethod
-    def debug(text):
-        """Debug Level"""
-        save_log(json={"text": text, "level": "DEBUG"})
-        pass
+    In 'prod', it uses ServerLogHandler to send logs to the API.
+    In 'dev', it logs to the console.
+    """
+    env = os.getenv("ENV", "dev")
+    logger = logging.getLogger(name or "gefcore")
+    logger.setLevel(logging.DEBUG)
 
-    @staticmethod
-    def info(text):
-        """Info Level"""
-        save_log(json={"text": text, "level": "INFO"})
-        pass
+    if logger.hasHandlers():
+        logger.handlers.clear()
 
-    @staticmethod
-    def warn(text):
-        """Warn Level"""
-        save_log(json={"text": text, "level": "WARN"})
-        pass
+    if env == "prod":
+        handler = ServerLogHandler()
+        formatter = logging.Formatter("%(message)s")
+        handler.setFormatter(formatter)
+    else:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
+        handler.setFormatter(formatter)
 
-    @staticmethod
-    def error(text):
-        """Error Level"""
-        save_log(json={"text": text, "level": "ERROR"})
-        pass
+    logger.addHandler(handler)
 
-    @staticmethod
-    def send_progress(progress):
-        """Send Progress"""
-        patch_execution(json={"progress": progress})
-        pass
-
-
-LOGGERS = {"dev": LocalLogger, "prod": ServerLogger}
-
-
-def get_logger_by_env():
-    """Get logger according to theenvironment"""
-    env = os.getenv("ENV")
-    logger = LOGGERS.get(env)
     return logger
+
+
+def send_progress(progress):
+    """Send script execution progress."""
+    env = os.getenv("ENV", "dev")
+    if env == "prod":
+        patch_execution(json={"progress": progress})
+    else:
+        logging.info(f"Progress: {progress}%")
