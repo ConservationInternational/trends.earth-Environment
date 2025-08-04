@@ -1,0 +1,100 @@
+name: Security Scan
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  vulnerability-scan:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install safety bandit[toml]
+
+    - name: Run Safety dependency vulnerability scan
+      run: |
+        safety scan -r requirements.txt --json --output safety-report.json || true
+        safety scan -r requirements.txt --short-report
+
+    - name: Run Bandit code security scan
+      run: |
+        bandit -r gefcore/ -f json -o bandit-report.json || true
+        bandit -r gefcore/ --severity-level medium
+
+    - name: Run Trivy filesystem scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        severity: 'CRITICAL,HIGH,MEDIUM'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: Upload security scan artifacts
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: security-scan-reports
+        path: |
+          safety-report.json
+          bandit-report.json
+          trivy-results.sarif
+        retention-days: 30
+
+    - name: Create security summary
+      if: always()
+      run: |
+        echo "## Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        echo "### Safety (Dependency Vulnerabilities)" >> $GITHUB_STEP_SUMMARY
+        if [ -f safety-report.json ]; then
+          echo "✅ Safety scan completed - check artifacts for details" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ Safety scan failed" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        echo "### Bandit (Code Security)" >> $GITHUB_STEP_SUMMARY
+        if [ -f bandit-report.json ]; then
+          echo "✅ Bandit scan completed - check artifacts for details" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ Bandit scan failed" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        echo "### Trivy (Container/Filesystem Security)" >> $GITHUB_STEP_SUMMARY
+        if [ -f trivy-results.sarif ]; then
+          echo "✅ Trivy scan completed - results uploaded to Security tab" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ Trivy scan failed" >> $GITHUB_STEP_SUMMARY
+        fi

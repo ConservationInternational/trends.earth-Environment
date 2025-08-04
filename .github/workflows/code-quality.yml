@@ -55,19 +55,46 @@ jobs:
       with:
         python-version: "3.11"
 
-    - name: Install bandit
+    - name: Install security tools
       run: |
         python -m pip install --upgrade pip
-        pip install bandit[toml]
+        pip install bandit[toml] safety
 
     - name: Run bandit security check
       run: |
         bandit -r gefcore/ -f json -o bandit-report.json || true
         bandit -r gefcore/
 
-    - name: Upload bandit report
+    - name: Run dependency vulnerability scan
+      run: |
+        safety scan -r requirements.txt --json --output vulnerability-report.json || true
+        safety scan -r requirements.txt
+
+    - name: Upload security reports
       uses: actions/upload-artifact@v3
       if: always()
       with:
-        name: bandit-security-report
-        path: bandit-report.json
+        name: security-reports
+        path: |
+          bandit-report.json
+          vulnerability-report.json
+
+  dependency-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
