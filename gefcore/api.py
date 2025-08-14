@@ -159,8 +159,12 @@ def _handle_api_error(
         )
 
 
-# Validate environment variables on module import
-validate_required_env_vars()
+
+# Only validate environment variables if running in production or staging
+ENV = os.getenv("ENV")
+if ENV in ("prod", "production", "staging"):
+    validate_required_env_vars()
+
 
 API_URL = os.getenv("API_URL")
 EMAIL = os.getenv("API_USER")
@@ -168,6 +172,17 @@ PASSWORD = os.getenv("API_PASSWORD")
 EXECUTION_ID = os.getenv("EXECUTION_ID")
 PARAMS_S3_PREFIX = os.getenv("PARAMS_S3_PREFIX")
 PARAMS_S3_BUCKET = os.getenv("PARAMS_S3_BUCKET")
+
+def _require_var(var, name):
+    if var is None:
+        env = os.getenv("ENV")
+        if env not in ("prod", "production", "staging"):
+            raise RuntimeError(f"Environment variable '{name}' is required for this operation.\n"
+                              f"You are running in ENV={env!r}. This is expected for local development, "
+                              f"but this function cannot be used without '{name}'.")
+        else:
+            raise RuntimeError(f"Missing required environment variable: {name}")
+    return var
 
 # Default timeout for HTTP requests (in seconds)
 DEFAULT_REQUEST_TIMEOUT = 30
@@ -322,8 +337,12 @@ def retry_api_call(max_duration_minutes=30, max_attempts=None):
     return decorator
 
 
+def login():
 @retry_api_call(max_duration_minutes=3, max_attempts=5)
 def login():
+    _require_var(API_URL, "API_URL")
+    _require_var(EMAIL, "API_USER")
+    _require_var(PASSWORD, "API_PASSWORD")
     """
     Authenticate with the API and store both access and refresh tokens.
 
@@ -415,8 +434,10 @@ def login():
         raise e
 
 
+def refresh_access_token():
 @retry_api_call(max_duration_minutes=2, max_attempts=3)
 def refresh_access_token():
+    _require_var(API_URL, "API_URL")
     """
     Use the refresh token to get a new access token.
 
@@ -537,6 +558,7 @@ def get_access_token():
 
 
 def make_authenticated_request(method, url, **kwargs):
+    _require_var(API_URL, "API_URL")
     """
     Make an authenticated API request with automatic token refresh on 401 errors.
 
@@ -592,8 +614,12 @@ def make_authenticated_request(method, url, **kwargs):
     return response
 
 
+def _get_params_from_s3(out_path):
 @retry_api_call(max_duration_minutes=10)
 def _get_params_from_s3(out_path):
+    _require_var(PARAMS_S3_PREFIX, "PARAMS_S3_PREFIX")
+    _require_var(EXECUTION_ID, "EXECUTION_ID")
+    _require_var(PARAMS_S3_BUCKET, "PARAMS_S3_BUCKET")
     object_name = PARAMS_S3_PREFIX + "/" + EXECUTION_ID + ".json.gz"
     s3 = boto3.client("s3")
     s3.download_file(PARAMS_S3_BUCKET, object_name, str(out_path))
@@ -617,8 +643,12 @@ def get_params():
         return params
 
 
+def patch_execution(json):
+
 @retry_api_call(max_duration_minutes=10)
 def patch_execution(json):
+    _require_var(API_URL, "API_URL")
+    _require_var(EXECUTION_ID, "EXECUTION_ID")
     response = make_authenticated_request(
         "PATCH", API_URL + "/api/v1/execution/" + EXECUTION_ID, json=json
     )
@@ -628,8 +658,12 @@ def patch_execution(json):
     )
 
 
+def save_log(json):
+
 @retry_api_call(max_duration_minutes=10)
 def save_log(json):
+    _require_var(API_URL, "API_URL")
+    _require_var(EXECUTION_ID, "EXECUTION_ID")
     response = make_authenticated_request(
         "POST", API_URL + "/api/v1/execution/" + EXECUTION_ID + "/log", json=json
     )
