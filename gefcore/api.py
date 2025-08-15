@@ -337,7 +337,6 @@ def retry_api_call(max_duration_minutes=30, max_attempts=None):
     return decorator
 
 
-def login():
 @retry_api_call(max_duration_minutes=3, max_attempts=5)
 def login():
     _require_var(API_URL, "API_URL")
@@ -434,7 +433,6 @@ def login():
         raise e
 
 
-def refresh_access_token():
 @retry_api_call(max_duration_minutes=2, max_attempts=3)
 def refresh_access_token():
     _require_var(API_URL, "API_URL")
@@ -614,7 +612,6 @@ def make_authenticated_request(method, url, **kwargs):
     return response
 
 
-def _get_params_from_s3(out_path):
 @retry_api_call(max_duration_minutes=10)
 def _get_params_from_s3(out_path):
     _require_var(PARAMS_S3_PREFIX, "PARAMS_S3_PREFIX")
@@ -643,8 +640,6 @@ def get_params():
         return params
 
 
-def patch_execution(json):
-
 @retry_api_call(max_duration_minutes=10)
 def patch_execution(json):
     _require_var(API_URL, "API_URL")
@@ -657,8 +652,6 @@ def patch_execution(json):
         response, "patching execution", request_payload=json, raise_exception=False
     )
 
-
-def save_log(json):
 
 @retry_api_call(max_duration_minutes=10)
 def save_log(json):
