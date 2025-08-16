@@ -1,0 +1,12 @@
+# Testing framework
+pytest>=8.4.1
+pytest-mock>=3.14.1
+pytest-cov>=6.2.1
+
+# Code quality tools
+ruff>=0.12.9
+mypy>=1.17.1
+
+# Security scanning
+bandit>=1.8.6
+safety>=3.6.0

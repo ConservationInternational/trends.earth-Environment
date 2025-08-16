@@ -8,7 +8,7 @@ from gefcore.api import patch_execution, save_log
 
 class GEFLogger(logging.Logger):
     """Custom logger class with send_progress method."""
-    
+
     def send_progress(self, progress):
         """Send script execution progress."""
         env = os.getenv("ENV", "dev")
@@ -39,7 +39,7 @@ def get_logger(name=None):
     """
     # Set the logger class to our custom GEFLogger
     logging.setLoggerClass(GEFLogger)
-    
+
     env = os.getenv("ENV", "dev")
     logger = logging.getLogger(name or "gefcore")
     logger.setLevel(logging.DEBUG)

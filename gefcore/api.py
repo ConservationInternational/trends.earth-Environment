@@ -1,5 +1,6 @@
 """API"""
 
+import contextlib
 import functools
 import gzip
 import json
@@ -12,8 +13,6 @@ from pathlib import Path
 import boto3
 import requests
 import rollbar
-
-rollbar.init(os.getenv("ROLLBAR_SCRIPT_TOKEN"), os.getenv("ENV"))
 
 # Configure logger for this module
 logger = logging.getLogger(__name__)
@@ -116,10 +115,8 @@ def _create_error_details(response, request_payload=None):
             error_details["request_payload"] = sanitized_payload
 
     # Try to get JSON response if possible
-    try:
+    with contextlib.suppress(ValueError, requests.exceptions.JSONDecodeError):
         error_details["response_json"] = response.json()
-    except (ValueError, requests.exceptions.JSONDecodeError):
-        pass
 
     return error_details
 
@@ -159,7 +156,6 @@ def _handle_api_error(
         )
 
 
-
 # Only validate environment variables if running in production or staging
 ENV = os.getenv("ENV")
 if ENV in ("prod", "production", "staging"):
@@ -173,16 +169,20 @@ EXECUTION_ID = os.getenv("EXECUTION_ID")
 PARAMS_S3_PREFIX = os.getenv("PARAMS_S3_PREFIX")
 PARAMS_S3_BUCKET = os.getenv("PARAMS_S3_BUCKET")
 
+
 def _require_var(var, name):
-    if var is None:
+    if var is None or var == "":
         env = os.getenv("ENV")
         if env not in ("prod", "production", "staging"):
-            raise RuntimeError(f"Environment variable '{name}' is required for this operation.\n"
-                              f"You are running in ENV={env!r}. This is expected for local development, "
-                              f"but this function cannot be used without '{name}'.")
+            raise RuntimeError(
+                f"Environment variable '{name}' is required for this operation.\n"
+                f"You are running in ENV={env!r}. This is expected for local development, "
+                f"but this function cannot be used without '{name}'."
+            )
         else:
             raise RuntimeError(f"Missing required environment variable: {name}")
     return var
+
 
 # Default timeout for HTTP requests (in seconds)
 DEFAULT_REQUEST_TIMEOUT = 30
@@ -319,16 +319,17 @@ def retry_api_call(max_duration_minutes=30, max_attempts=None):
                     # Only report retry attempts to rollbar occasionally to avoid spam
                     if (
                         attempt <= 3 or attempt % 5 == 0
+                    ) and _should_report_retry_to_rollbar(
+                        func.__name__
                     ):  # Report first 3 attempts, then every 5th
-                        if _should_report_retry_to_rollbar(func.__name__):
-                            rollbar.report_message(
-                                f"API call retry for {func.__name__}",
-                                extra_data={
-                                    "attempt": attempt,
-                                    "delay": delay,
-                                    "error": str(e),
-                                },
-                            )
+                        rollbar.report_message(
+                            f"API call retry for {func.__name__}",
+                            extra_data={
+                                "attempt": attempt,
+                                "delay": delay,
+                                "error": str(e),
+                            },
+                        )
 
                     time.sleep(delay)
 
@@ -580,7 +581,12 @@ def make_authenticated_request(method, url, **kwargs):
     jwt = get_access_token()
     kwargs["headers"]["Authorization"] = f"Bearer {jwt}"
 
-    response = requests.request(method, url, **kwargs)
+    response = requests.request(
+        method,
+        url,
+        timeout=kwargs.get("timeout", DEFAULT_REQUEST_TIMEOUT),
+        **{k: v for k, v in kwargs.items() if k != "timeout"},
+    )
 
     # If we get 401 (Unauthorized), try refreshing the token once
     if response.status_code == 401:
@@ -598,7 +604,12 @@ def make_authenticated_request(method, url, **kwargs):
             kwargs["headers"]["Authorization"] = f"Bearer {jwt}"
 
             # Retry the request with new token
-            response = requests.request(method, url, **kwargs)
+            response = requests.request(
+                method,
+                url,
+                timeout=kwargs.get("timeout", DEFAULT_REQUEST_TIMEOUT),
+                **{k: v for k, v in kwargs.items() if k != "timeout"},
+            )
         except Exception as e:
             # If authentication completely fails, don't retry - return the original 401
             logger.error(f"Failed to refresh authentication after 401 error: {str(e)}")

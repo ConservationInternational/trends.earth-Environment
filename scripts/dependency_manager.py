@@ -5,16 +5,16 @@ Dependency management and security checking script.
 This script helps maintain secure and up-to-date dependencies.
 """
 
+import argparse
+import json
 import subprocess
 import sys
-import json
-import argparse
 
 
 def run_command(cmd, capture_output=True):
     """Run a command and return the result."""
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S602
             cmd, shell=True, capture_output=capture_output, text=True, check=True
         )
         return result.stdout if capture_output else ""
