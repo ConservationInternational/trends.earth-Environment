@@ -23,8 +23,8 @@ class TestValidateRequiredEnvVars:
             "API_USER": "testuser",
             "API_PASSWORD": "testpass",
             "EXECUTION_ID": "exec123",
-            "PARAMS_S3_PREFIX": "prefix", 
-            "PARAMS_S3_BUCKET": "bucket"
+            "PARAMS_S3_PREFIX": "prefix",
+            "PARAMS_S3_BUCKET": "bucket",
         },
         clear=False,
     )
