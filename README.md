@@ -188,6 +188,185 @@ bandit -r gefcore/
 5. User script execution with monitoring and logging
 6. Results and status reporting back to API
 
+## Developing Custom Scripts
+
+This environment package serves as the execution platform for custom geospatial analysis scripts developed using the [trends.earth CLI](https://github.com/ConservationInternational/trends.earth-CLI). Here's how to create and deploy new scripts:
+
+### Script Package Structure
+
+Custom scripts are organized as packages with the following structure:
+
+```
+my-custom-script/
+├── configuration.json      # Script metadata and configuration
+├── requirements.txt        # Python dependencies specific to this script
+└── src/                   # Source code directory
+    ├── __init__.py        # Python package initialization
+    └── main.py           # Main script entry point with run() function
+```
+
+### Script Entry Point
+
+Every script must implement a `run(params, logger)` function in `src/main.py`:
+
+```python
+def run(params, logger):
+    """
+    Main script execution function.
+    
+    Args:
+        params (dict): Parameters passed from the API/UI
+        logger: Pre-configured logger instance for progress reporting
+    
+    Returns:
+        dict: Results to be sent back to the API
+    """
+    # Your script logic here
+    logger.info("Script started")
+    
+    # Access input parameters
+    area_of_interest = params.get('geometry')
+    start_date = params.get('start_date')
+    end_date = params.get('end_date')
+    
+    # Your analysis logic using Google Earth Engine, NumPy, etc.
+    result = perform_analysis(area_of_interest, start_date, end_date)
+    
+    logger.info("Analysis complete")
+    return {
+        'status': 'success',
+        'results': result
+    }
+```
+
+### Configuration File
+
+The `configuration.json` file defines script metadata and environment requirements:
+
+```json
+{
+    "name": "sdg-15-3-1-indicator 2_1_17",
+    "environment": "trends.earth-environment", 
+    "environment_version": "2.1.18"
+}
+```
+
+**Required fields:**
+- `name` - Unique identifier for your script
+- `environment` - Must be "trends.earth-environment" 
+- `environment_version` - Version of this environment package to use
+
+**Important:** The environment package is pulled from the main Docker registry (conservationinternational organization). The specified version must be built and publicly available in the registry before scripts can reference it. Check [Docker Hub](https://hub.docker.com/r/conservationinternational/trends.earth-environment) for available versions.
+
+**Server-assigned fields:**
+- `id` - Unique UUID assigned by the server when the script is published (do not include in initial submission)
+
+**Note:** When first submitting a script, do **not** include the `id` field in your configuration.json. The server will assign a unique UUID and return it in the response when the script is successfully published.
+
+### Script Parameters
+
+Script parameters are passed via the `params` argument to your `run()` function and are defined through the trends.earth UI or API rather than in the configuration file. Common parameters include:
+
+- `geometry` - GeoJSON area of interest
+- `start_date` / `end_date` - Date ranges for analysis  
+- `resolution` - Spatial resolution for analysis
+- Custom parameters specific to your analysis
+
+### Available Libraries and Services
+
+Scripts running in this environment have access to:
+
+- **Google Earth Engine** - Pre-authenticated and initialized
+- **Standard Python libraries** - NumPy, SciPy, etc. (via base requirements)
+- **GDAL** - Geospatial Data Abstraction Library (via Docker base image)
+- **Additional geospatial libraries** - Can be added via your script's `requirements.txt` (Rasterio, Shapely, Fiona, etc.)
+- **Custom logger** - Integrated with trends.earth API for progress tracking
+- **Parameter retrieval** - Automatic parameter loading from API (implemented via S3)
+- **Result publishing** - Automatic result upload to API
+
+**Note:** The base environment includes essential libraries for geospatial analysis. For additional Python packages, add them to your script's `requirements.txt` file and they will be automatically installed when your script runs.
+
+### Example Scripts
+
+#### Simple NumPy Analysis
+```python
+import numpy as np
+
+def run(params, logger):
+    logger.info("Starting NumPy analysis")
+    
+    data = np.array(params.get('input_data', []))
+    result = np.mean(data)
+    
+    logger.info(f"Calculated mean: {result}")
+    return {'mean': result}
+```
+
+#### Google Earth Engine Analysis
+```python
+import ee
+
+def run(params, logger):
+    logger.info("Starting GEE analysis")
+    
+    # Get area of interest
+    geometry = ee.Geometry(params['geometry'])
+    
+    # Load satellite data
+    collection = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2') \
+        .filterBounds(geometry) \
+        .filterDate(params['start_date'], params['end_date'])
+    
+    # Perform analysis
+    mean_image = collection.mean()
+    
+    # Extract statistics
+    stats = mean_image.reduceRegion(
+        reducer=ee.Reducer.mean(),
+        geometry=geometry,
+        scale=30
+    ).getInfo()
+    
+    logger.info("Analysis complete")
+    return {'statistics': stats}
+```
+
+### Script Development Workflow
+
+1. **Create script package** using trends.earth CLI:
+   ```bash
+   tecli create my-script
+   cd my-script
+   ```
+
+2. **Develop your script** in `src/main.py` with the required `run()` function
+
+3. **Test locally** using trends.earth CLI:
+   ```bash
+   # Test with mock parameters (using query parameters)
+   tecli start --param="geometry={...}&start_date=2023-01-01"
+   
+   # Test with a JSON payload file
+   echo '{"geometry": {...}, "start_date": "2023-01-01", "end_date": "2023-12-31"}' > test_params.json
+   tecli start --payload=test_params.json
+   ```
+
+4. **Publish to API** using CLI:
+   ```bash
+   tecli publish my-script
+   ```
+
+5. **Execute via API** - The script will run in this environment container
+
+### Best Practices
+
+- **Error handling** - Use try/except blocks and log errors appropriately
+- **Progress reporting** - Use `logger.info()` for user-visible progress updates
+- **Memory management** - Be mindful of memory usage for large datasets
+- **Timeouts** - Design scripts to complete within reasonable timeframes
+- **Parameter validation** - Validate input parameters before processing
+- **Modular code** - Split complex logic into separate functions/modules
+
 ## Container security scan (requires Docker)
 docker run --rm -v $(pwd):/workspace aquasec/trivy fs /workspace
 ```
