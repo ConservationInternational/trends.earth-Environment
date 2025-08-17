@@ -4,6 +4,12 @@ This project belongs to the trends.earth project by Conservation International.
 
 This repository implements the Core Platform of the trends.earth Environment for running Google Earth Engine scripts.
 
+## Status
+
+[![Tests](https://github.com/ConservationInternational/trends.earth-Environment/actions/workflows/tests.yml/badge.svg)](https://github.com/ConservationInternational/trends.earth-Environment/actions/workflows/tests.yml)
+[![Code Quality](https://github.com/ConservationInternational/trends.earth-Environment/actions/workflows/code-quality.yml/badge.svg)](https://github.com/ConservationInternational/trends.earth-Environment/actions/workflows/code-quality.yml)
+[![Security Scan](https://github.com/ConservationInternational/trends.earth-Environment/actions/workflows/security.yml/badge.svg)](https://github.com/ConservationInternational/trends.earth-Environment/actions/workflows/security.yml)
+
 Check out the other parts of the trends.earth project:
 
 - The API [trends.earth API](https://github.com/ConservationInternational/trends.earth-API)
