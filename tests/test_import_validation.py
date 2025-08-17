@@ -1,6 +1,6 @@
 """Test import validation for all Python modules.
 
-Note: Syntax validation (duplicate functions, empty functions, etc.) is 
+Note: Syntax validation (duplicate functions, empty functions, etc.) is
 handled by Ruff linting in the CI pipeline and doesn't need separate tests.
 """
 
