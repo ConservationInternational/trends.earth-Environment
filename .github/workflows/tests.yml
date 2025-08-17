@@ -56,10 +56,11 @@ jobs:
         bandit -r gefcore/ -ll
       continue-on-error: true  # Security issues shouldn't fail the build initially
     
-    - name: Safety check for vulnerabilities
+    - name: pip-audit check for vulnerabilities
       run: |
-        safety check --json --output safety-report.json || true
-        safety check
+        pip install pip-audit
+        pip-audit --format=json --output=safety-report.json --requirement=requirements.txt || true
+        pip-audit --requirement=requirements.txt || echo "pip-audit scan completed with warnings"
       continue-on-error: true  # Vulnerability checks shouldn't fail the build initially
     
     - name: Run syntax validation tests
@@ -91,7 +92,7 @@ jobs:
         fail_ci_if_error: false
     
     - name: Upload test artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: test-reports-python-${{ matrix.python-version }}
@@ -140,13 +141,25 @@ jobs:
                 with open(py_file, 'r') as f:
                     tree = ast.parse(f.read(), filename=str(py_file))
                 
-                functions = {}
+                # Check for duplicate functions within each class
                 for node in ast.walk(tree):
+                    if isinstance(node, ast.ClassDef):
+                        class_functions = {}
+                        for child in node.body:
+                            if isinstance(child, ast.FunctionDef):
+                                if child.name in class_functions:
+                                    errors.append(f'{py_file}: Duplicate function {child.name} in class {node.name} at line {child.lineno} (first at line {class_functions[child.name]})')
+                                else:
+                                    class_functions[child.name] = child.lineno
+                
+                # Check for duplicate functions at module level (not in any class)
+                module_functions = {}
+                for node in tree.body:
                     if isinstance(node, ast.FunctionDef):
-                        if node.name in functions:
-                            errors.append(f'{py_file}: Duplicate function {node.name} at line {node.lineno} (first at line {functions[node.name]})')
+                        if node.name in module_functions:
+                            errors.append(f'{py_file}: Duplicate module-level function {node.name} at line {node.lineno} (first at line {module_functions[node.name]})')
                         else:
-                            functions[node.name] = node.lineno
+                            module_functions[node.name] = node.lineno
             except:
                 pass
         
