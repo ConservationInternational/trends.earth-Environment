@@ -23,8 +23,8 @@ class TestValidateRequiredEnvVars:
             "API_USER": "testuser",
             "API_PASSWORD": "testpass",
             "EXECUTION_ID": "exec123",
-            "PARAMS_S3_PREFIX": "prefix", 
-            "PARAMS_S3_BUCKET": "bucket"
+            "PARAMS_S3_PREFIX": "prefix",
+            "PARAMS_S3_BUCKET": "bucket",
         },
         clear=False,
     )
@@ -364,6 +364,9 @@ class TestRefreshAccessToken:
         api._access_token = None
         api._refresh_token = None
         api._token_expires_at = None
+        api._auth_failure_count = 0
+        api._auth_circuit_breaker_until = None
+        api._last_circuit_breaker_rollbar_report = None
 
     @patch("requests.post")
     @patch.object(api, "API_URL", "https://api.example.com")
@@ -449,6 +452,9 @@ class TestGetAccessToken:
         api._access_token = None
         api._refresh_token = None
         api._token_expires_at = None
+        api._auth_failure_count = 0
+        api._auth_circuit_breaker_until = None
+        api._last_circuit_breaker_rollbar_report = None
 
     @patch("gefcore.api.login")
     def test_get_access_token_no_token(self, mock_login):

@@ -86,9 +86,11 @@ def reset_api_state():
 @pytest.fixture
 def mock_rollbar():
     """Mock rollbar to avoid external dependencies in tests."""
-    with patch("rollbar.init") as mock_init, patch(
-        "rollbar.report_exc_info"
-    ) as mock_report_exc, patch("rollbar.report_message") as mock_report_msg:
+    with (
+        patch("rollbar.init") as mock_init,
+        patch("rollbar.report_exc_info") as mock_report_exc,
+        patch("rollbar.report_message") as mock_report_msg,
+    ):
         yield {
             "init": mock_init,
             "report_exc_info": mock_report_exc,
@@ -99,9 +101,10 @@ def mock_rollbar():
 @pytest.fixture
 def mock_earth_engine():
     """Mock Google Earth Engine to avoid authentication in tests."""
-    with patch("ee.Initialize") as mock_init, patch(
-        "ee.ServiceAccountCredentials"
-    ) as mock_creds:
+    with (
+        patch("ee.Initialize") as mock_init,
+        patch("ee.ServiceAccountCredentials") as mock_creds,
+    ):
         yield {
             "initialize": mock_init,
             "credentials": mock_creds,
@@ -111,11 +114,13 @@ def mock_earth_engine():
 @pytest.fixture
 def mock_api_calls():
     """Mock all API calls to avoid external dependencies."""
-    with patch("gefcore.api.make_authenticated_request") as mock_request, patch(
-        "gefcore.api.login"
-    ) as mock_login, patch("gefcore.api.get_params") as mock_get_params, patch(
-        "gefcore.api.patch_execution"
-    ) as mock_patch, patch("gefcore.api.save_log") as mock_save_log:
+    with (
+        patch("gefcore.api.make_authenticated_request") as mock_request,
+        patch("gefcore.api.login") as mock_login,
+        patch("gefcore.api.get_params") as mock_get_params,
+        patch("gefcore.api.patch_execution") as mock_patch,
+        patch("gefcore.api.save_log") as mock_save_log,
+    ):
         # Set up default return values
         mock_request.return_value = MagicMock(
             status_code=200, json=lambda: {"success": True}
