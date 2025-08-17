@@ -63,10 +63,6 @@ jobs:
         pip-audit --requirement=requirements.txt || echo "pip-audit scan completed with warnings"
       continue-on-error: true  # Vulnerability checks shouldn't fail the build initially
     
-    - name: Run syntax validation tests
-      run: |
-        pytest tests/test_syntax_validation.py -v --no-cov
-    
     - name: Run unit tests
       run: |
         pytest tests/ -v --cov=gefcore --cov-report=xml --cov-report=term-missing

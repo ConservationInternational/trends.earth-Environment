@@ -82,8 +82,7 @@ if pytest tests/ -v --cov=gefcore --cov-report=term-missing --cov-report=html \
     --ignore=security-venv \
     --ignore=__pycache__ \
     --ignore=.pytest_cache \
-    --ignore=htmlcov \
-    --ignore=tests/test_syntax_validation.py; then
+    --ignore=htmlcov; then
     print_success "Unit tests passed"
 else
     print_error "Unit tests failed"
