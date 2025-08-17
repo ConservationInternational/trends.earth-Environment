@@ -13,7 +13,6 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 # Install dependencies - takes ~90 seconds total. NEVER CANCEL.
-# May fail in sandboxed environments due to network/SSL issues.
 pip install --upgrade pip
 pip install -r requirements.txt      # ~30 seconds
 pip install -r requirements-dev.txt  # ~60 seconds
@@ -40,10 +39,10 @@ bandit -r gefcore/
 # Type checking - takes ~5 seconds, may show missing stub warnings
 mypy gefcore/ --ignore-missing-imports --no-strict-optional
 
-# Dependency security check - may timeout in sandboxed environments
+# Dependency security check - requires authentication for full scan
 safety scan -r requirements.txt
 
-# Comprehensive security audit using built-in script - may timeout
+# Comprehensive security audit using built-in script
 python scripts/dependency_manager.py --all
 ```
 
@@ -57,10 +56,10 @@ ENV=test TESTING=true python -c "import gefcore; print('Import successful')"
 # For development, use the test environment with proper environment variables
 ```
 
-### Docker build (may fail in sandboxed environments):
+### Docker build:
 ```bash
 # Build container - takes 10+ minutes if successful. NEVER CANCEL.
-# Set timeout to 30+ minutes. May fail due to SSL certificate issues.
+# Set timeout to 30+ minutes.
 docker build -t trends-earth-env-test .
 
 # Test container if build succeeds
@@ -71,10 +70,10 @@ docker run --rm -e ENV=test -e TESTING=true trends-earth-env-test python -c "imp
 
 ### ALWAYS run these validation steps after making changes:
 1. **Test basic functionality**: Run `ENV=test TESTING=true python -c "import gefcore"` to verify imports work
-2. **Run test suite**: Execute `./run_tests.sh` - 97 tests must pass with >90% coverage (currently 92%)
+2. **Run test suite**: Execute `./run_tests.sh` - 97 tests must pass with >80% coverage (currently 92%)
 3. **Check code quality**: Run `ruff check . && ruff format .` - all checks must pass
 4. **Security validation**: Run `bandit -r gefcore/` - no high/medium severity issues allowed
-5. **Test coverage**: Ensure test coverage remains above 50% (configured minimum)
+5. **Test coverage**: Ensure test coverage remains above 80% (configured minimum)
 
 ### Manual validation scenarios:
 - **API changes**: Run tests in `tests/test_api.py` to verify API functionality with mock calls
@@ -202,12 +201,10 @@ safety scan -r requirements.txt
 ## Important Notes
 
 - **NEVER CANCEL builds or tests**: Test suite takes ~20 seconds, dependency installation ~90 seconds
-- **Network limitations**: Dependency installation and security scans may fail in sandboxed environments due to SSL/network issues
 - **Environment variables are critical**: Application will fail without proper configuration  
-- **Docker builds may fail**: SSL certificate issues common in sandboxed environments
 - **Tests use mocks**: External dependencies (GEE, API calls) are mocked in test environment
 - **Security is important**: This processes geospatial data and integrates with cloud services
-- **Coverage requirement**: Maintain >50% test coverage (currently 92%)
+- **Coverage requirement**: Maintain >80% test coverage (currently 92%)
 - **Python compatibility**: Supports Python 3.8-3.12, tested in CI
 
 ## Troubleshooting
@@ -218,8 +215,8 @@ safety scan -r requirements.txt
 - Set test environment: `ENV=test TESTING=true`
 
 ### Dependency installation failures:
-- Network/SSL certificate issues are common in sandboxed environments
-- Try setting `pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org` if SSL fails
+- Check virtual environment is activated and paths are correct
+- Verify internet connectivity and try again if installation fails
 - Use existing working environment when possible instead of fresh installs
 
 ### Test failures:
@@ -228,11 +225,11 @@ safety scan -r requirements.txt
 - Run individual test files to isolate issues
 
 ### Docker build failures:
-- SSL certificate issues are common in sandboxed environments
-- Try building with `--network=host` if permitted
-- Use direct Python execution for development instead of containers
+- Check Docker daemon is running and accessible
+- Ensure sufficient disk space and memory for build process
+- Use direct Python execution for development instead of containers when troubleshooting
 
 ### CI failures:
 - Run `ruff format .` to fix formatting issues
 - Run `ruff check . --fix` to auto-fix linting issues  
-- Ensure test coverage remains above 50%
+- Ensure test coverage remains above 80%
