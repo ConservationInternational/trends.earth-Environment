@@ -169,6 +169,7 @@ safety scan -r requirements.txt
 
 # Scan code for security issues
 bandit -r gefcore/
+```
 
 ## Architecture
 
