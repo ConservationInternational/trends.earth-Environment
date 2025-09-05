@@ -32,58 +32,50 @@ class TestInitializeEarthEngine:
     """Test the initialize_earth_engine function."""
 
     def test_initialize_earth_engine_service_account_not_found(self):
-        """Test initialization fails when service account file is missing."""
-        with pytest.raises(FileNotFoundError, match="Service account file not found"):
+        """Test initialization fails when no credentials are available."""
+        with pytest.raises(RuntimeError, match="No Google Earth Engine credentials available"):
             runner.initialize_earth_engine()
 
-    @patch("os.path.exists")
-    @patch("ee.ServiceAccountCredentials")
-    @patch("ee.Initialize")
+    @patch("gefcore.runner._has_service_account_file")
+    @patch("gefcore.runner._initialize_ee_with_service_account")
     def test_initialize_earth_engine_success(
-        self, mock_ee_init, mock_ee_creds, mock_exists
+        self, mock_init_service_account, mock_has_service_account
     ):
         """Test successful Earth Engine initialization."""
-        # Mock file exists
-        mock_exists.return_value = True
+        # Mock that service account file exists and initialization succeeds
+        mock_has_service_account.return_value = True
+        mock_init_service_account.return_value = True
 
-        # Mock credentials constructor (not from_service_account_file)
-        mock_credentials = MagicMock()
-        mock_ee_creds.return_value = mock_credentials
-
-        # Test
+        # Test - should not raise any exception
         runner.initialize_earth_engine()
 
-        # Verify ServiceAccountCredentials constructor was called
-        mock_ee_creds.assert_called_once()
-        # Verify ee.Initialize was called with the credentials
-        mock_ee_init.assert_called_once_with(mock_credentials)
+        # Verify service account initialization was called
+        mock_init_service_account.assert_called_once()
 
-    @patch("os.path.exists")
-    @patch("ee.ServiceAccountCredentials")
-    @patch("ee.Initialize")
+    @patch("gefcore.runner._has_service_account_file")
+    @patch("gefcore.runner._initialize_ee_with_service_account")
     def test_initialize_earth_engine_credential_error(
-        self, mock_ee_init, mock_ee_creds, mock_exists
+        self, mock_init_service_account, mock_has_service_account
     ):
         """Test initialization handles credential errors gracefully."""
-        # Mock file exists but credentials fail
-        mock_exists.return_value = True
-        mock_ee_creds.side_effect = Exception("Invalid credentials")
+        # Mock that service account file exists but initialization fails
+        mock_has_service_account.return_value = True
+        mock_init_service_account.return_value = False
 
-        with pytest.raises(Exception, match="Invalid credentials"):
+        with pytest.raises(RuntimeError, match="No Google Earth Engine credentials available"):
             runner.initialize_earth_engine()
 
     @patch("rollbar.report_message")
     def test_initialize_earth_engine_reports_to_rollbar(self, mock_rollbar_report):
-        """Test that missing service account is reported to Rollbar."""
-        with pytest.raises(FileNotFoundError):
+        """Test that missing credentials are reported to Rollbar."""
+        with pytest.raises(RuntimeError):
             runner.initialize_earth_engine()
 
         mock_rollbar_report.assert_called_once_with(
-            "Missing GEE service account file",
+            "Missing GEE credentials",
             extra_data={
-                "service_account_path": os.path.join(
-                    runner.PROJECT_DIR, "service_account.json"
-                )
+                "oauth_available": False,
+                "service_account_available": False
             },
         )
 
