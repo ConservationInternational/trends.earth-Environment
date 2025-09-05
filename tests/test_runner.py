@@ -33,7 +33,9 @@ class TestInitializeEarthEngine:
 
     def test_initialize_earth_engine_service_account_not_found(self):
         """Test initialization fails when no credentials are available."""
-        with pytest.raises(RuntimeError, match="No Google Earth Engine credentials available"):
+        with pytest.raises(
+            RuntimeError, match="No Google Earth Engine credentials available"
+        ):
             runner.initialize_earth_engine()
 
     @patch("gefcore.runner._has_service_account_file")
@@ -62,7 +64,9 @@ class TestInitializeEarthEngine:
         mock_has_service_account.return_value = True
         mock_init_service_account.return_value = False
 
-        with pytest.raises(RuntimeError, match="No Google Earth Engine credentials available"):
+        with pytest.raises(
+            RuntimeError, match="No Google Earth Engine credentials available"
+        ):
             runner.initialize_earth_engine()
 
     @patch("rollbar.report_message")
@@ -73,10 +77,7 @@ class TestInitializeEarthEngine:
 
         mock_rollbar_report.assert_called_once_with(
             "Missing GEE credentials",
-            extra_data={
-                "oauth_available": False,
-                "service_account_available": False
-            },
+            extra_data={"oauth_available": False, "service_account_available": False},
         )
 
 

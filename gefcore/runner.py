@@ -38,7 +38,7 @@ GEE_ENDPOINT = os.getenv("GEE_ENDPOINT")
 def initialize_earth_engine():
     """Initialize Google Earth Engine with available credentials (OAuth or service account)."""
     logging.info("Starting Earth Engine initialization...")
-    
+
     # Try OAuth credentials first (if available)
     if os.getenv("GEE_OAUTH_ACCESS_TOKEN") and os.getenv("GEE_OAUTH_REFRESH_TOKEN"):
         logging.info("Found OAuth credentials, attempting OAuth authentication...")
@@ -46,21 +46,27 @@ def initialize_earth_engine():
             logging.info("Successfully authenticated with Earth Engine using OAuth")
             return
         logging.warning("OAuth authentication failed, falling back to service account")
-    
+
     # Fall back to service account authentication
     if os.getenv("EE_SERVICE_ACCOUNT_JSON") or _has_service_account_file():
         logging.info("Attempting service account authentication...")
         if _initialize_ee_with_service_account():
-            logging.info("Successfully authenticated with Earth Engine using service account")
+            logging.info(
+                "Successfully authenticated with Earth Engine using service account"
+            )
             return
-    
+
     # No credentials available
     error_msg = "No Google Earth Engine credentials available. Please provide either OAuth tokens or service account credentials."
     logging.error(error_msg)
     rollbar.report_message(
         "Missing GEE credentials",
-        extra_data={"oauth_available": bool(os.getenv("GEE_OAUTH_ACCESS_TOKEN")), 
-                   "service_account_available": bool(os.getenv("EE_SERVICE_ACCOUNT_JSON") or _has_service_account_file())},
+        extra_data={
+            "oauth_available": bool(os.getenv("GEE_OAUTH_ACCESS_TOKEN")),
+            "service_account_available": bool(
+                os.getenv("EE_SERVICE_ACCOUNT_JSON") or _has_service_account_file()
+            ),
+        },
     )
     raise RuntimeError(error_msg)
 
@@ -75,29 +81,33 @@ def _initialize_ee_with_oauth():
     """Initialize Google Earth Engine with OAuth credentials."""
     try:
         from google.oauth2.credentials import Credentials
-        
+
         # Create OAuth credentials from environment variables
         credentials = Credentials(
             token=os.getenv("GEE_OAUTH_ACCESS_TOKEN"),
             refresh_token=os.getenv("GEE_OAUTH_REFRESH_TOKEN"),
-            token_uri=os.getenv("GOOGLE_OAUTH_TOKEN_URI", "https://oauth2.googleapis.com/token"),
+            token_uri=os.getenv(
+                "GOOGLE_OAUTH_TOKEN_URI", "https://oauth2.googleapis.com/token"
+            ),
             client_id=os.getenv("GOOGLE_OAUTH_CLIENT_ID"),
             client_secret=os.getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
             scopes=["https://www.googleapis.com/auth/earthengine"],
         )
-        
+
         # Initialize Earth Engine with OAuth credentials
         ee.Initialize(credentials, project=GOOGLE_PROJECT_ID, opt_url=GEE_ENDPOINT)
         logging.info("Earth Engine OAuth authentication successful")
         return True
-        
+
     except ImportError as e:
         logging.error(f"OAuth dependencies not available: {e}")
         return False
     except Exception as e:
         logging.error(f"Failed to initialize Earth Engine with OAuth: {e}")
         rollbar.report_exc_info(
-            extra_data={"oauth_client_id": os.getenv("GOOGLE_OAUTH_CLIENT_ID") is not None}
+            extra_data={
+                "oauth_client_id": os.getenv("GOOGLE_OAUTH_CLIENT_ID") is not None
+            }
         )
         return False
 
@@ -112,61 +122,79 @@ def _initialize_ee_with_service_account():
             import base64
             import json
             import tempfile
-            
+
             # Decode base64 service account JSON
             try:
                 decoded_json = base64.b64decode(service_account_json).decode("utf-8")
                 service_account_data = json.loads(decoded_json)
             except Exception as e:
-                logging.error(f"Failed to decode service account JSON from environment: {e}")
+                logging.error(
+                    f"Failed to decode service account JSON from environment: {e}"
+                )
                 return False
-            
+
             # Write to temporary file for Earth Engine
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as temp_file:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", delete=False
+            ) as temp_file:
                 json.dump(service_account_data, temp_file)
                 temp_key_path = temp_file.name
-            
+
             try:
                 service_account_data = json.loads(decoded_json)
                 gee_credentials = ee.ServiceAccountCredentials(
-                    email=service_account_data.get("client_email"), key_file=temp_key_path
+                    email=service_account_data.get("client_email"),
+                    key_file=temp_key_path,
                 )
-                ee.Initialize(gee_credentials, project=GOOGLE_PROJECT_ID, opt_url=GEE_ENDPOINT)
-                logging.info("Earth Engine service account authentication successful (from environment)")
+                ee.Initialize(
+                    gee_credentials, project=GOOGLE_PROJECT_ID, opt_url=GEE_ENDPOINT
+                )
+                logging.info(
+                    "Earth Engine service account authentication successful (from environment)"
+                )
                 return True
             finally:
                 # Clean up temporary file
                 with contextlib.suppress(Exception):
                     os.unlink(temp_key_path)
-        
+
         # Fall back to file-based service account
         service_account_path = os.path.join(PROJECT_DIR, "service_account.json")
         if os.path.exists(service_account_path):
             logging.info(f"Using service account file at: {service_account_path}")
-            
+
             # Read service account data to get email
             try:
                 with open(service_account_path) as f:
                     service_account_data = json.load(f)
-                    
+
                 gee_credentials = ee.ServiceAccountCredentials(
-                    email=service_account_data.get("client_email"), key_file=service_account_path
+                    email=service_account_data.get("client_email"),
+                    key_file=service_account_path,
                 )
-                ee.Initialize(gee_credentials, project=GOOGLE_PROJECT_ID, opt_url=GEE_ENDPOINT)
-                logging.info("Earth Engine service account authentication successful (from file)")
+                ee.Initialize(
+                    gee_credentials, project=GOOGLE_PROJECT_ID, opt_url=GEE_ENDPOINT
+                )
+                logging.info(
+                    "Earth Engine service account authentication successful (from file)"
+                )
                 return True
             except Exception as e:
                 logging.error(f"Failed to read or use service account file: {e}")
                 return False
-        
+
         logging.error("No service account credentials found")
         return False
-        
+
     except Exception as e:
         logging.error(f"Failed to initialize Earth Engine with service account: {e}")
         rollbar.report_exc_info(
-            extra_data={"service_account_file_exists": _has_service_account_file(),
-                       "service_account_env_available": bool(os.getenv("EE_SERVICE_ACCOUNT_JSON"))}
+            extra_data={
+                "service_account_file_exists": _has_service_account_file(),
+                "service_account_env_available": bool(
+                    os.getenv("EE_SERVICE_ACCOUNT_JSON")
+                ),
+            }
         )
         return False
 
