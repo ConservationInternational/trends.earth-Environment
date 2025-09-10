@@ -24,7 +24,17 @@ class ServerLogHandler(logging.Handler):
     def emit(self, record):
         """Sends the log record to the server."""
         try:
-            log_entry = {"text": self.format(record), "level": record.levelname}
+            # Include exception info if present
+            formatted_message = self.format(record)
+            
+            # If there's exception info, include the full traceback
+            if record.exc_info and record.exc_info != (None, None, None):
+                import traceback
+                exc_text = traceback.format_exception(*record.exc_info)
+                exc_string = "".join(exc_text)
+                formatted_message += f"\n\nException details:\n{exc_string}"
+            
+            log_entry = {"text": formatted_message, "level": record.levelname}
             save_log(json=log_entry)
         except Exception:
             self.handleError(record)

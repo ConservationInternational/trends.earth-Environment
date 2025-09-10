@@ -148,7 +148,13 @@ def _handle_api_error(
     logger.error(error_msg)
     logger.debug(f"{operation_name.title()} error details: {error_details}")
 
-    rollbar.report_message(f"Error {operation_name}", extra_data=error_details)
+    # Report to Rollbar with full exception context if available, otherwise use message
+    try:
+        # Try to capture current exception context for full traceback
+        rollbar.report_exc_info(extra_data=error_details)
+    except Exception:
+        # Fallback to message-only reporting if no exception context available
+        rollbar.report_message(f"Error {operation_name}", extra_data=error_details)
 
     if raise_exception:
         raise Exception(

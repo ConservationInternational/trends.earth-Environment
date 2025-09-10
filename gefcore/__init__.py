@@ -29,10 +29,20 @@ def handle_exception(exc_type, exc_value, exc_traceback):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
 
+    # Get detailed traceback information
+    import traceback
+    tb_details = traceback.format_exception(exc_type, exc_value, exc_traceback)
+    tb_string = "".join(tb_details)
+    
+    # Log with full traceback details
     logger.error(
-        "Uncaught exception occurred",
+        f"Uncaught exception occurred: {exc_value}\n\nFull traceback:\n{tb_string}",
         exc_info=(exc_type, exc_value, exc_traceback),
     )
+    
+    # Also report to Rollbar with full exception info
+    if rollbar_token and os.getenv("ENV") not in ("test", "testing"):
+        rollbar.report_exc_info(exc_info=(exc_type, exc_value, exc_traceback))
 
 
 sys.excepthook = handle_exception
