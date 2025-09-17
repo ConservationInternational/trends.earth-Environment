@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 import boto3
@@ -17,6 +18,15 @@ import rollbar
 
 # Configure logger for this module
 logger = logging.getLogger(__name__)
+
+
+class UUIDEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles UUID objects by converting them to strings."""
+    
+    def default(self, obj):
+        if isinstance(obj, uuid.UUID):
+            return str(obj)
+        return super().default(obj)
 
 
 def validate_required_env_vars():
@@ -97,7 +107,7 @@ def _create_error_details(response, request_payload=None):
 
         # Convert payload to string to check size
         payload_str = (
-            json.dumps(sanitized_payload)
+            json.dumps(sanitized_payload, cls=UUIDEncoder)
             if isinstance(sanitized_payload, dict)
             else str(sanitized_payload)
         )
@@ -618,8 +628,10 @@ def make_authenticated_request(method, url, **kwargs):
     # Add compression for outgoing requests if we have JSON data
     if "json" in kwargs and kwargs["json"]:
         try:
+            # Always serialize JSON with UUID support first to check size and ensure compatibility
+            json_str = json.dumps(kwargs["json"], separators=(",", ":"), cls=UUIDEncoder)
+            
             # Check if the JSON payload is large enough to benefit from compression
-            json_str = json.dumps(kwargs["json"], separators=(",", ":"))
             if len(json_str) > 1000:  # Only compress if >1KB
                 # Compress the JSON data
                 compressed_data = gzip.compress(json_str.encode("utf-8"))
@@ -638,6 +650,14 @@ def make_authenticated_request(method, url, **kwargs):
                     kwargs["headers"]["Content-Encoding"] = "gzip"
                     # Remove the json parameter since we're using data instead
                     del kwargs["json"]
+                else:
+                    # Compression not effective, but still need to handle UUIDs
+                    # Convert the JSON data to ensure UUID compatibility
+                    kwargs["json"] = json.loads(json_str)
+            else:
+                # Small payload, no compression, but still need to handle UUIDs
+                # Convert the JSON data to ensure UUID compatibility
+                kwargs["json"] = json.loads(json_str)
         except Exception as e:
             # If compression fails, fall back to uncompressed
             logger.debug(f"Request compression failed, using uncompressed: {e}")
