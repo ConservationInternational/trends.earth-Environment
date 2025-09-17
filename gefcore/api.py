@@ -594,6 +594,7 @@ def make_authenticated_request(method, url, **kwargs):
     _require_var(API_URL, "API_URL")
     """
     Make an authenticated API request with automatic token refresh on 401 errors.
+    Automatically adds compression support for large payloads.
 
     Args:
         method (str): HTTP method (GET, POST, PATCH, etc.)
@@ -610,6 +611,36 @@ def make_authenticated_request(method, url, **kwargs):
     # Set default timeout if not provided
     if "timeout" not in kwargs:
         kwargs["timeout"] = DEFAULT_REQUEST_TIMEOUT
+
+    # Add compression support - request compressed responses from server
+    kwargs["headers"]["Accept-Encoding"] = "gzip, deflate"
+
+    # Add compression for outgoing requests if we have JSON data
+    if "json" in kwargs and kwargs["json"]:
+        try:
+            # Check if the JSON payload is large enough to benefit from compression
+            json_str = json.dumps(kwargs["json"], separators=(",", ":"))
+            if len(json_str) > 1000:  # Only compress if >1KB
+                # Compress the JSON data
+                compressed_data = gzip.compress(json_str.encode("utf-8"))
+                compression_ratio = len(json_str) / len(compressed_data)
+
+                # Only use compression if it saves significant space (>20% reduction)
+                if compression_ratio > 1.2:
+                    logger.debug(
+                        f"Compressing request payload: {len(json_str)} -> "
+                        f"{len(compressed_data)} bytes "
+                        f"(ratio: {compression_ratio:.2f}x)"
+                    )
+                    # Replace json with compressed data
+                    kwargs["data"] = compressed_data
+                    kwargs["headers"]["Content-Type"] = "application/json"
+                    kwargs["headers"]["Content-Encoding"] = "gzip"
+                    # Remove the json parameter since we're using data instead
+                    del kwargs["json"]
+        except Exception as e:
+            # If compression fails, fall back to uncompressed
+            logger.debug(f"Request compression failed, using uncompressed: {e}")
 
     # First attempt with current token
     jwt = get_access_token()
