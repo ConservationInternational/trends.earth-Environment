@@ -18,7 +18,7 @@ env = os.getenv("ENV")
 if rollbar_token and env and env not in ("test", "testing"):
     rollbar.init(rollbar_token, env)
     rollbar_handler = RollbarHandler()
-    rollbar_handler.setLevel(logging.INFO)
+    rollbar_handler.setLevel(logging.WARNING)  # Only send WARNING and above to Rollbar
     logger.addHandler(rollbar_handler)
 
 
@@ -31,15 +31,16 @@ def handle_exception(exc_type, exc_value, exc_traceback):
 
     # Get detailed traceback information
     import traceback
+
     tb_details = traceback.format_exception(exc_type, exc_value, exc_traceback)
     tb_string = "".join(tb_details)
-    
+
     # Log with full traceback details
     logger.error(
         f"Uncaught exception occurred: {exc_value}\n\nFull traceback:\n{tb_string}",
         exc_info=(exc_type, exc_value, exc_traceback),
     )
-    
+
     # Also report to Rollbar with full exception info
     if rollbar_token and os.getenv("ENV") not in ("test", "testing"):
         rollbar.report_exc_info(exc_info=(exc_type, exc_value, exc_traceback))
