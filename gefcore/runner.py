@@ -104,8 +104,11 @@ def _initialize_ee_with_oauth():
         return False
     except Exception as e:
         import traceback
+
         full_traceback = traceback.format_exc()
-        logging.error(f"Failed to initialize Earth Engine with OAuth: {e}\n\nFull traceback:\n{full_traceback}")
+        logging.error(
+            f"Failed to initialize Earth Engine with OAuth: {e}\n\nFull traceback:\n{full_traceback}"
+        )
         rollbar.report_exc_info(
             extra_data={
                 "oauth_client_id": os.getenv("GOOGLE_OAUTH_CLIENT_ID") is not None
@@ -190,8 +193,11 @@ def _initialize_ee_with_service_account():
 
     except Exception as e:
         import traceback
+
         full_traceback = traceback.format_exc()
-        logging.error(f"Failed to initialize Earth Engine with service account: {e}\n\nFull traceback:\n{full_traceback}")
+        logging.error(
+            f"Failed to initialize Earth Engine with service account: {e}\n\nFull traceback:\n{full_traceback}"
+        )
         rollbar.report_exc_info(
             extra_data={
                 "service_account_file_exists": _has_service_account_file(),
@@ -259,7 +265,10 @@ def run():
         if logger:
             # Log the full exception with traceback to the API
             import traceback
+
             full_traceback = traceback.format_exc()
-            logger.error(f"Script execution failed: {str(error)}\n\nFull traceback:\n{full_traceback}")
+            logger.error(
+                f"Script execution failed: {str(error)}\n\nFull traceback:\n{full_traceback}"
+            )
         rollbar.report_exc_info()
         raise error

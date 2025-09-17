@@ -80,6 +80,13 @@ class ServerLogHandler(logging.Handler):
                 import sys
 
                 print(f"Logger error: {error_msg}", file=sys.stderr)
+
+                # CRITICAL: If save_log fails, also print the original log message to stderr
+                # This ensures we don't lose important error details when API logging fails
+                print(
+                    f"Original log message that failed to send: {record.getMessage()}",
+                    file=sys.stderr,
+                )
             except Exception:
                 # If even error reporting fails, use the standard handler
                 self.handleError(record)

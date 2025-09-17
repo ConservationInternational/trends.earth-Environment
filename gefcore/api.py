@@ -6,6 +6,7 @@ import gzip
 import json
 import logging
 import os
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -147,6 +148,13 @@ def _handle_api_error(
     error_msg = f"Error {operation_name} - Status: {response.status_code}, URL: {response.request.url}"
     logger.error(error_msg)
     logger.debug(f"{operation_name.title()} error details: {error_details}")
+
+    # Always print API errors to stderr as backup when logging might fail
+    # This ensures we can see error details even if the API logger is failing
+    print(f"API Error Details: {error_msg}", file=sys.stderr)
+    print(f"Response Text: {response.text[:500]}", file=sys.stderr)
+    if error_details:
+        print(f"Full Error Details: {error_details}", file=sys.stderr)
 
     # Report to Rollbar with full exception context if available, otherwise use message
     try:
@@ -322,6 +330,26 @@ def retry_api_call(max_duration_minutes=30, max_attempts=None):
 
                     retry_msg = f"API call failed (attempt {attempt}), retrying in {delay} seconds..."
                     logger.warning(retry_msg)
+
+                    # Also print detailed error info to stderr for debugging
+                    print(
+                        f"Retry {attempt} for {func.__name__}: {str(e)}",
+                        file=sys.stderr,
+                    )
+
+                    # If it's a requests exception, try to get more details
+                    if hasattr(e, "response"):
+                        response = e.response
+                        if hasattr(response, "status_code"):
+                            print(
+                                f"HTTP {response.status_code}: {response.text[:500]}",
+                                file=sys.stderr,
+                            )
+                    elif hasattr(e, "__class__"):
+                        print(
+                            f"Exception type: {e.__class__.__name__}", file=sys.stderr
+                        )
+
                     # Only report retry attempts to rollbar occasionally to avoid spam
                     if (
                         attempt <= 3 or attempt % 5 == 0
