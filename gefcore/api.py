@@ -15,6 +15,14 @@ from pathlib import Path
 import boto3
 import requests
 import rollbar
+from tenacity import (
+    RetryError,
+    retry,
+    retry_if_not_exception_type,
+    stop_after_attempt,
+    stop_after_delay,
+    wait_exponential,
+)
 
 # Configure logger for this module
 logger = logging.getLogger(__name__)
@@ -264,9 +272,81 @@ def _should_report_retry_to_rollbar(func_name):
     return True
 
 
+class AuthenticationError(Exception):
+    """Exception raised for authentication failures that should not be retried."""
+
+    pass
+
+
+def _is_auth_error(exception):
+    """Check if exception is an authentication error (401 or 403)."""
+    error_str = str(exception)
+    return "401" in error_str or "403" in error_str
+
+
+def _log_retry_attempt(retry_state):
+    """Log retry attempt with details for debugging."""
+    func_name = retry_state.fn.__name__
+    attempt = retry_state.attempt_number
+    exception = retry_state.outcome.exception()
+
+    logger.warning(
+        f"API call to {func_name} failed (attempt {attempt}), retrying..."
+    )
+
+    # Print detailed error info to stderr for debugging
+    print(f"Retry {attempt} for {func_name}: {exception}", file=sys.stderr)
+
+    # If it's a requests exception, try to get more details
+    if hasattr(exception, "response"):
+        response = exception.response
+        if hasattr(response, "status_code"):
+            print(
+                f"HTTP {response.status_code}: {response.text[:500]}",
+                file=sys.stderr,
+            )
+    elif hasattr(exception, "__class__"):
+        print(f"Exception type: {exception.__class__.__name__}", file=sys.stderr)
+
+    # Report to rollbar occasionally to avoid spam
+    if (attempt <= 3 or attempt % 5 == 0) and _should_report_retry_to_rollbar(
+        func_name
+    ):
+        rollbar.report_message(
+            f"API call retry for {func_name}",
+            extra_data={
+                "attempt": attempt,
+                "error": str(exception),
+            },
+        )
+
+
+def _report_retry_exhausted(retry_state):
+    """Report to rollbar when retries are exhausted."""
+    func_name = retry_state.fn.__name__
+    attempt = retry_state.attempt_number
+    exception = retry_state.outcome.exception()
+
+    if _should_report_retry_to_rollbar(func_name):
+        rollbar.report_message(
+            f"Max retries exhausted for {func_name}",
+            extra_data={
+                "attempt": attempt,
+                "error": str(exception),
+            },
+        )
+
+
 def retry_api_call(max_duration_minutes=30, max_attempts=None):
     """
-    Decorator to retry API calls with exponential backoff for up to max_duration_minutes.
+    Decorator to retry API calls with exponential backoff using tenacity.
+
+    This decorator provides robust retry functionality with:
+    - Exponential backoff starting at 1 second, capped at 120 seconds
+    - Configurable maximum duration and attempt limits
+    - Automatic logging of retry attempts
+    - Integration with Rollbar for error reporting
+    - Authentication error detection (no retry on 401/403)
 
     Args:
         max_duration_minutes (int): Maximum time to retry in minutes (default: 30)
@@ -274,108 +354,65 @@ def retry_api_call(max_duration_minutes=30, max_attempts=None):
 
     Returns:
         Decorated function that will retry on failure
+
+    Example:
+        @retry_api_call(max_duration_minutes=5, max_attempts=3)
+        def my_api_function():
+            # API call that may fail
+            pass
     """
+    max_duration_seconds = max_duration_minutes * 60
+
+    # Build stop condition: combine time limit and optional attempt limit
+    if max_attempts:
+        stop_condition = stop_after_delay(max_duration_seconds) | stop_after_attempt(
+            max_attempts
+        )
+    else:
+        stop_condition = stop_after_delay(max_duration_seconds)
 
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            max_duration_seconds = max_duration_minutes * 60
-            start_time = time.time()
-            attempt = 0
-            base_delay = 1  # Start with 1 second delay
+            # Create the retry decorator with tenacity
+            retry_decorator = retry(
+                # Exponential backoff: 1s, 2s, 4s, ... up to 120s max
+                wait=wait_exponential(multiplier=1, min=1, max=120),
+                stop=stop_condition,
+                # Retry on any exception except AuthenticationError
+                retry=retry_if_not_exception_type(AuthenticationError),
+                # Log before each retry sleep
+                before_sleep=_log_retry_attempt,
+                # Don't reraise RetryError, let the original exception through
+                reraise=True,
+            )
 
-            while True:
+            # Wrap the function to check for auth errors
+            @retry_decorator
+            def inner_call():
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
-                    attempt += 1
-                    elapsed_time = time.time() - start_time
-
-                    # Check max attempts limit first
-                    if max_attempts and attempt >= max_attempts:
-                        error_msg = f"Max retry attempts ({max_attempts}) exceeded for {func.__name__}"
-                        logger.error(error_msg)
-                        if _should_report_retry_to_rollbar(func.__name__):
-                            rollbar.report_message(
-                                f"Max retry attempts exceeded for {func.__name__}",
-                                extra_data={
-                                    "attempt": attempt,
-                                    "elapsed_time": elapsed_time,
-                                    "error": str(e),
-                                },
-                            )
-                        raise e
-
-                    # Calculate delay with exponential backoff (capped at 120 seconds)
-                    delay = min(base_delay * (2 ** (attempt - 1)), 120)
-
-                    # Check if we would exceed the time limit with the next delay
-                    if elapsed_time + delay > max_duration_seconds:
-                        error_msg = f"Max retry duration of {max_duration_minutes} minutes exceeded"
-                        logger.error(error_msg)
-                        if _should_report_retry_to_rollbar(func.__name__):
-                            rollbar.report_message(
-                                f"Max retry duration exceeded for {func.__name__}",
-                                extra_data={
-                                    "attempt": attempt,
-                                    "elapsed_time": elapsed_time,
-                                    "error": str(e),
-                                },
-                            )
-                        raise e
-
-                    # Don't retry on authentication errors (401, 403) for login function
-                    if func.__name__ == "login" and "401" in str(e) or "403" in str(e):
-                        error_msg = f"Authentication failed for {func.__name__} - not retrying auth errors"
-                        logger.error(error_msg)
+                    # Convert auth errors to non-retryable exceptions for login function
+                    if func.__name__ == "login" and _is_auth_error(e):
+                        logger.error(
+                            f"Authentication failed for {func.__name__} - not retrying"
+                        )
                         if _should_report_retry_to_rollbar(func.__name__):
                             rollbar.report_message(
                                 f"Authentication error - not retrying {func.__name__}",
-                                extra_data={
-                                    "attempt": attempt,
-                                    "error": str(e),
-                                },
+                                extra_data={"error": str(e)},
                             )
-                        raise e
+                        raise AuthenticationError(str(e)) from e
+                    raise
 
-                    retry_msg = f"API call failed (attempt {attempt}), retrying in {delay} seconds..."
-                    logger.warning(retry_msg)
-
-                    # Also print detailed error info to stderr for debugging
-                    print(
-                        f"Retry {attempt} for {func.__name__}: {str(e)}",
-                        file=sys.stderr,
-                    )
-
-                    # If it's a requests exception, try to get more details
-                    if hasattr(e, "response"):
-                        response = e.response
-                        if hasattr(response, "status_code"):
-                            print(
-                                f"HTTP {response.status_code}: {response.text[:500]}",
-                                file=sys.stderr,
-                            )
-                    elif hasattr(e, "__class__"):
-                        print(
-                            f"Exception type: {e.__class__.__name__}", file=sys.stderr
-                        )
-
-                    # Only report retry attempts to rollbar occasionally to avoid spam
-                    if (
-                        attempt <= 3 or attempt % 5 == 0
-                    ) and _should_report_retry_to_rollbar(
-                        func.__name__
-                    ):  # Report first 3 attempts, then every 5th
-                        rollbar.report_message(
-                            f"API call retry for {func.__name__}",
-                            extra_data={
-                                "attempt": attempt,
-                                "delay": delay,
-                                "error": str(e),
-                            },
-                        )
-
-                    time.sleep(delay)
+            try:
+                return inner_call()
+            except RetryError as retry_error:
+                # Report exhaustion to rollbar
+                _report_retry_exhausted(retry_error.last_attempt)
+                # Re-raise the original exception
+                raise retry_error.last_attempt.exception() from retry_error
 
         return wrapper
 
