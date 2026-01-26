@@ -1,2 +1,2 @@
-docker build -t conservationinternational/trends.earth-environment:2.1.18 .
-docker push conservationinternational/trends.earth-environment:2.1.18
+docker build -t conservationinternational/trends.earth-environment:2.2.2 .
+docker push conservationinternational/trends.earth-environment:2.2.2

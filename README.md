@@ -21,6 +21,8 @@ trends.earth-Environment/
 │   └── dependency_manager.py # Security and dependency management
 ├── tests/                    # Test suite
 ├── .github/workflows/        # CI/CD workflows
+├── build.bat                 # Windows build and push script
+├── build.sh                  # Linux/macOS build and push script
 ├── Dockerfile                # Container build configuration
 ├── main.py                   # Application entry point
 ├── entrypoint.sh             # Docker container entrypoint
@@ -29,6 +31,20 @@ trends.earth-Environment/
 ├── pyproject.toml            # Project configuration and tools
 └── run_tests.sh              # Test execution script
 ```
+
+## Building and Publishing
+
+The `build.bat` (Windows) and `build.sh` (Linux/macOS) scripts build and push the Docker image to the container registry:
+
+```bash
+# Linux/macOS
+./build.sh
+
+# Windows
+build.bat
+```
+
+These scripts build the Docker image tagged as `conservationinternational/trends.earth-environment:<version>` and push it to Docker Hub.
 
 ## Related Projects
 
@@ -94,7 +110,7 @@ The `configuration.json` file defines script metadata and environment requiremen
 {
     "name": "sdg-15-3-1-indicator 2_1_17",
     "environment": "trends.earth-environment", 
-    "environment_version": "2.1.18"
+    "environment_version": "2.2.2"
 }
 ```
 
