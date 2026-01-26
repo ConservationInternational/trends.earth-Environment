@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 class UUIDEncoder(json.JSONEncoder):
     """Custom JSON encoder that handles UUID objects by converting them to strings."""
-    
+
     def default(self, obj):
         if isinstance(obj, uuid.UUID):
             return str(obj)
@@ -290,9 +290,7 @@ def _log_retry_attempt(retry_state):
     attempt = retry_state.attempt_number
     exception = retry_state.outcome.exception()
 
-    logger.warning(
-        f"API call to {func_name} failed (attempt {attempt}), retrying..."
-    )
+    logger.warning(f"API call to {func_name} failed (attempt {attempt}), retrying...")
 
     # Print detailed error info to stderr for debugging
     print(f"Retry {attempt} for {func_name}: {exception}", file=sys.stderr)
@@ -666,8 +664,10 @@ def make_authenticated_request(method, url, **kwargs):
     if "json" in kwargs and kwargs["json"]:
         try:
             # Always serialize JSON with UUID support first to check size and ensure compatibility
-            json_str = json.dumps(kwargs["json"], separators=(",", ":"), cls=UUIDEncoder)
-            
+            json_str = json.dumps(
+                kwargs["json"], separators=(",", ":"), cls=UUIDEncoder
+            )
+
             # Check if the JSON payload is large enough to benefit from compression
             if len(json_str) > 1000:  # Only compress if >1KB
                 # Compress the JSON data

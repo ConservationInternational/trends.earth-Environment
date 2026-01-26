@@ -118,13 +118,13 @@ class TestCompressionAPIClient:
 
         large_random_data = {
             "random_fields": [
-                base64.b64encode(secrets.token_bytes(64)).decode('ascii')
+                base64.b64encode(secrets.token_bytes(64)).decode("ascii")
                 for _ in range(50)  # 50 fields * 64 bytes * 4/3 (base64) = ~4.2KB
             ],
             "more_random": {
                 f"key_{secrets.randbits(32)}": secrets.token_hex(32)
                 for _ in range(25)  # Additional random data
-            }
+            },
         }
 
         api.make_authenticated_request(
@@ -134,16 +134,18 @@ class TestCompressionAPIClient:
         # Verify the request was made
         mock_request.assert_called_once()
         call_args = mock_request.call_args
-        
+
         # The compression behavior depends on the actual compression ratio achieved
         # If compression ratio > 1.2, data will be compressed (data param used)
         # If compression ratio <= 1.2, data won't be compressed (json param used)
         has_compressed_data = "data" in call_args[1]
         has_json_data = "json" in call_args[1]
-        
+
         # Exactly one should be true
-        assert has_compressed_data ^ has_json_data, "Should have either compressed data or json, not both"
-        
+        assert has_compressed_data ^ has_json_data, (
+            "Should have either compressed data or json, not both"
+        )
+
         # If compressed, verify proper headers are set
         if has_compressed_data:
             assert call_args[1]["headers"]["Content-Encoding"] == "gzip"
@@ -297,7 +299,9 @@ class TestCompressionThresholds:
             json_str = json.dumps(data, separators=(",", ":"))
             # The threshold in the code is 1000 bytes
             expected_compression = len(json_str) > 1000
-            assert (expected_compression == should_compress), f"Size: {len(json_str)}, Expected: {should_compress}"
+            assert expected_compression == should_compress, (
+                f"Size: {len(json_str)}, Expected: {should_compress}"
+            )
 
     def test_compression_ratio_threshold(self):
         """Test that compression only applies when ratio >1.2"""
@@ -314,7 +318,7 @@ class TestCompressionThresholds:
 
         random_data = {
             "test": [
-                ''.join(secrets.choice(string.ascii_letters) for _ in range(10))
+                "".join(secrets.choice(string.ascii_letters) for _ in range(10))
                 for _ in range(200)
             ]
         }
@@ -338,9 +342,10 @@ class TestCompressionIntegration:
     )
     def test_compression_preserves_request_parameters(self):
         """Test that compression doesn't interfere with other request parameters"""
-        with patch("requests.request") as mock_request, patch(
-            "gefcore.api.get_access_token"
-        ) as mock_get_token:
+        with (
+            patch("requests.request") as mock_request,
+            patch("gefcore.api.get_access_token") as mock_get_token,
+        ):
             mock_get_token.return_value = "test-token"
             mock_response = MagicMock()
             mock_response.status_code = 200
@@ -353,7 +358,7 @@ class TestCompressionIntegration:
                 "https://api.example.com/test",
                 json=large_data,
                 timeout=30,
-                headers={"Custom-Header": "value"}
+                headers={"Custom-Header": "value"},
             )
 
             call_args = mock_request.call_args
@@ -374,9 +379,10 @@ class TestCompressionIntegration:
     )
     def test_compression_with_non_json_requests(self):
         """Test that compression doesn't interfere with non-JSON requests"""
-        with patch("requests.request") as mock_request, patch(
-            "gefcore.api.get_access_token"
-        ) as mock_get_token:
+        with (
+            patch("requests.request") as mock_request,
+            patch("gefcore.api.get_access_token") as mock_get_token,
+        ):
             mock_get_token.return_value = "test-token"
             mock_response = MagicMock()
             mock_response.status_code = 200
@@ -391,8 +397,8 @@ class TestCompressionIntegration:
             # Should still add Accept-Encoding for response compression
             assert call_args[1]["headers"]["Accept-Encoding"] == "gzip, deflate"
 
-    @patch('gefcore.api.get_access_token')
-    @patch('gefcore.api.requests.request')
+    @patch("gefcore.api.get_access_token")
+    @patch("gefcore.api.requests.request")
     def test_uuid_serialization_in_compression(self, mock_request, mock_get_token):
         """Test that UUID objects are properly serialized during compression"""
         mock_get_token.return_value = "test-token"
@@ -407,38 +413,36 @@ class TestCompressionIntegration:
                 {
                     "id": test_uuid,  # This would cause JSON serialization error
                     "properties": {"uuid": test_uuid},
-                    "data": "x" * 2000  # Make it large enough to trigger compression
+                    "data": "x" * 2000,  # Make it large enough to trigger compression
                 }
             ]
         }
 
         # This should not raise a JSON serialization error
         api.make_authenticated_request(
-            "POST", 
-            "https://api.example.com/test",
-            json=large_payload
+            "POST", "https://api.example.com/test", json=large_payload
         )
 
         # Verify the request was made and compression was attempted
         mock_request.assert_called_once()
         call_args = mock_request.call_args
-        
+
         # Should have compressed data since payload is large
         assert "data" in call_args[1]
         assert "json" not in call_args[1]  # json should be removed after compression
-        
+
         # Decompress and verify UUID was serialized as string
         compressed_data = call_args[1]["data"]
         decompressed_data = gzip.decompress(compressed_data)
-        parsed_data = json.loads(decompressed_data.decode('utf-8'))
-        
+        parsed_data = json.loads(decompressed_data.decode("utf-8"))
+
         # UUIDs should be serialized as strings
         assert isinstance(parsed_data["error_polygons"][0]["id"], str)
         assert isinstance(parsed_data["error_polygons"][0]["properties"]["uuid"], str)
         assert parsed_data["error_polygons"][0]["id"] == str(test_uuid)
 
-    @patch('gefcore.api.get_access_token')
-    @patch('gefcore.api.requests.request')
+    @patch("gefcore.api.get_access_token")
+    @patch("gefcore.api.requests.request")
     def test_small_payload_uuid_serialization(self, mock_request, mock_get_token):
         """Test that UUID objects are properly serialized even in small payloads (no compression)"""
         mock_get_token.return_value = "test-token"
@@ -453,25 +457,23 @@ class TestCompressionIntegration:
             "results": {
                 "id": test_uuid,  # This would cause JSON serialization error
                 "uuid": test_uuid,
-                "some_data": "small payload"
-            }
+                "some_data": "small payload",
+            },
         }
 
         # This should not raise a JSON serialization error
         api.make_authenticated_request(
-            "PATCH", 
-            "https://api.example.com/execution/123",
-            json=small_payload
+            "PATCH", "https://api.example.com/execution/123", json=small_payload
         )
 
         # Verify the request was made without compression (small payload)
         mock_request.assert_called_once()
         call_args = mock_request.call_args
-        
+
         # Should NOT have compressed data since payload is small
         assert "data" not in call_args[1] or call_args[1].get("data") is None
         assert "json" in call_args[1]  # json should still be present for small payloads
-        
+
         # Verify UUIDs were converted to strings in the json parameter
         json_data = call_args[1]["json"]
         assert isinstance(json_data["results"]["id"], str)
