@@ -3,6 +3,12 @@ set -e
 
 echo "Running script"
 
+# Skip GEE credential checks in test mode
+if [ "$TESTING" = "true" ] || [ "$ENV" = "test" ]; then
+    echo "Test mode detected - skipping GEE credential validation"
+    exec "$@"
+fi
+
 # Check for OAuth credentials first
 if [ -n "$GEE_OAUTH_ACCESS_TOKEN" ] && [ -n "$GEE_OAUTH_REFRESH_TOKEN" ]; then
     echo "Using OAuth credentials for GEE authentication"
@@ -56,4 +62,9 @@ else
     exit 1
 fi
 
-exec python main.py
+# Run the provided command or default to main.py
+if [ $# -eq 0 ]; then
+    exec python main.py
+else
+    exec "$@"
+fi

@@ -231,7 +231,7 @@ class TestHandleApiError:
         with pytest.raises(Exception, match="Error test action - HTTP 400"):
             api._handle_api_error(mock_response, "test action")
 
-    @patch("rollbar.report_message")
+    @patch("rollbar.report_exc_info")
     def test_handle_api_error_server_error_with_rollbar(self, mock_rollbar):
         """Test _handle_api_error with server error and rollbar reporting."""
         mock_response = MagicMock()

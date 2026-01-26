@@ -252,7 +252,10 @@ class TestRunFunction:
 
         # Verify error handling
         mock_change_status.assert_called_with("FAILED")
-        mock_logger.error.assert_called_with("Script execution failed")
+        # Logger.error is called with a message that includes the error and traceback
+        mock_logger.error.assert_called()
+        error_call_args = mock_logger.error.call_args[0][0]
+        assert "Script execution failed" in error_call_args
         mock_rollbar.assert_called_once()
 
     @patch("gefcore.runner.initialize_earth_engine")
