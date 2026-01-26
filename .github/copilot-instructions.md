@@ -150,7 +150,7 @@ safety scan -r requirements.txt --json --output safety-report.json || true
 - Achieves 92% code coverage
 
 ### CI/CD (`.github/workflows/`):
-- `tests.yml`: Runs tests on Python 3.8-3.12, includes security scans
+- `tests.yml`: Runs tests on Python 3.10-3.13, includes security scans
 - `code-quality.yml`: Ruff linting and formatting checks
 - `security.yml`: Bandit and Trivy security scanning
 
@@ -205,7 +205,7 @@ safety scan -r requirements.txt
 - **Tests use mocks**: External dependencies (GEE, API calls) are mocked in test environment
 - **Security is important**: This processes geospatial data and integrates with cloud services
 - **Coverage requirement**: Maintain >80% test coverage (currently 92%)
-- **Python compatibility**: Supports Python 3.8-3.12, tested in CI
+- **Python compatibility**: Supports Python 3.10-3.13, tested in CI
 
 ## Troubleshooting
 
