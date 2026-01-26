@@ -317,39 +317,6 @@ ruff format gefcore/ tests/
 mypy gefcore/ --ignore-missing-imports
 ```
 
-## Security
-
-### Security Tools
-
-Use the dependency manager script for security checks:
-
-```bash
-# Check for vulnerabilities
-python scripts/dependency_manager.py --check-vulns
-
-# Check for outdated packages
-python scripts/dependency_manager.py --check-outdated
-
-# Run comprehensive security audit
-python scripts/dependency_manager.py --audit
-
-# Run all security checks
-python scripts/dependency_manager.py --all
-```
-
-### Manual Security Scanning
-
-```bash
-# Install security tools
-pip install safety bandit[toml]
-
-# Check dependencies for vulnerabilities
-safety scan -r requirements.txt
-
-# Scan code for security issues
-bandit -r gefcore/
-```
-
 ## Architecture
 
 ### Core Modules
