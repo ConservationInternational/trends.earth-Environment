@@ -47,7 +47,7 @@ def validate_required_env_vars():
     required_vars = {
         "API_URL": "API base URL",
         "API_USER": "API username/email",
-        "API_PASSWORD": "API password",
+        "API_PASSWORD": "API password",  # nosec B105 - description, not a password
         "EXECUTION_ID": "Execution ID",
         "PARAMS_S3_PREFIX": "S3 parameters prefix",
         "PARAMS_S3_BUCKET": "S3 parameters bucket",
