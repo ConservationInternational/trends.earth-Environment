@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 handler = logging.StreamHandler(stream=sys.stdout)
 logger.addHandler(handler)
 
-rollbar_token = os.getenv("ROLLBAR_SCRIPT_TOKEN")
+# Use ROLLBAR_SCRIPT_TOKEN if set, otherwise fall back to ROLLBAR_SERVER_TOKEN
+rollbar_token = os.getenv("ROLLBAR_SCRIPT_TOKEN") or os.getenv("ROLLBAR_SERVER_TOKEN")
 env = os.getenv("ENV")
 if rollbar_token and env and env not in ("test", "testing"):
     rollbar.init(rollbar_token, env)

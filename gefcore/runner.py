@@ -15,7 +15,9 @@ try:
 except ImportError:
     main = None
 
-rollbar.init(os.getenv("ROLLBAR_SCRIPT_TOKEN"), os.getenv("ENV"))
+# Use ROLLBAR_SCRIPT_TOKEN if set, otherwise fall back to ROLLBAR_SERVER_TOKEN
+rollbar_token = os.getenv("ROLLBAR_SCRIPT_TOKEN") or os.getenv("ROLLBAR_SERVER_TOKEN")
+rollbar.init(rollbar_token, os.getenv("ENV"))
 
 # Silence warning about file_cache being unavailable. See more here:
 # https://github.com/googleapis/google-api-python-client/issues/299
