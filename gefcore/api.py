@@ -158,6 +158,8 @@ def _handle_api_error(
     Raises:
         Exception: If raise_exception is True and response status is not 200
     """
+    from gefcore import _get_rollbar_extra_data
+
     if response.status_code == 200:
         return
 
@@ -174,13 +176,20 @@ def _handle_api_error(
     if error_details:
         print(f"Full Error Details: {error_details}", file=sys.stderr)
 
-    # Report to Rollbar with full exception context if available, otherwise use message
+    # Report to Rollbar with source identification and full context
+    # Note: This reports API communication errors from the Environment's perspective.
+    # The API itself should NOT report these same errors to avoid duplicates.
     try:
+        extra_data = _get_rollbar_extra_data()
+        extra_data.update(error_details)
+        extra_data["error_location"] = f"api._handle_api_error({operation_name})"
         # Try to capture current exception context for full traceback
-        rollbar.report_exc_info(extra_data=error_details)
+        rollbar.report_exc_info(extra_data=extra_data)
     except Exception:
         # Fallback to message-only reporting if no exception context available
-        rollbar.report_message(f"Error {operation_name}", extra_data=error_details)
+        extra_data = _get_rollbar_extra_data()
+        extra_data.update(error_details)
+        rollbar.report_message(f"Error {operation_name}", extra_data=extra_data)
 
     if raise_exception:
         raise Exception(
@@ -286,6 +295,8 @@ def _is_auth_error(exception):
 
 def _log_retry_attempt(retry_state):
     """Log retry attempt with details for debugging."""
+    from gefcore import _get_rollbar_extra_data
+
     func_name = retry_state.fn.__name__
     attempt = retry_state.attempt_number
     exception = retry_state.outcome.exception()
@@ -310,28 +321,40 @@ def _log_retry_attempt(retry_state):
     if (attempt <= 3 or attempt % 5 == 0) and _should_report_retry_to_rollbar(
         func_name
     ):
+        extra_data = _get_rollbar_extra_data()
+        extra_data.update(
+            {
+                "attempt": attempt,
+                "error": str(exception)[:500],  # Truncate to avoid large payloads
+                "error_location": f"api._log_retry_attempt({func_name})",
+            }
+        )
         rollbar.report_message(
             f"API call retry for {func_name}",
-            extra_data={
-                "attempt": attempt,
-                "error": str(exception),
-            },
+            extra_data=extra_data,
         )
 
 
 def _report_retry_exhausted(retry_state):
     """Report to rollbar when retries are exhausted."""
+    from gefcore import _get_rollbar_extra_data
+
     func_name = retry_state.fn.__name__
     attempt = retry_state.attempt_number
     exception = retry_state.outcome.exception()
 
     if _should_report_retry_to_rollbar(func_name):
+        extra_data = _get_rollbar_extra_data()
+        extra_data.update(
+            {
+                "attempt": attempt,
+                "error": str(exception)[:500],  # Truncate to avoid large payloads
+                "error_location": f"api._report_retry_exhausted({func_name})",
+            }
+        )
         rollbar.report_message(
             f"Max retries exhausted for {func_name}",
-            extra_data={
-                "attempt": attempt,
-                "error": str(exception),
-            },
+            extra_data=extra_data,
         )
 
 

@@ -13,14 +13,32 @@ logger = logging.getLogger(__name__)
 handler = logging.StreamHandler(stream=sys.stdout)
 logger.addHandler(handler)
 
-# Use ROLLBAR_SCRIPT_TOKEN if set, otherwise fall back to ROLLBAR_SERVER_TOKEN
-rollbar_token = os.getenv("ROLLBAR_SCRIPT_TOKEN") or os.getenv("ROLLBAR_SERVER_TOKEN")
+# The API passes ROLLBAR_SCRIPT_TOKEN to the container (with its own fallback
+# to ROLLBAR_SERVER_TOKEN already applied).  The Environment only needs this
+# single token to separate script-execution errors from API-server errors.
+rollbar_token = os.getenv("ROLLBAR_SCRIPT_TOKEN")
 env = os.getenv("ENV")
+execution_id = os.getenv("EXECUTION_ID")
+
 if rollbar_token and env and env not in ("test", "testing"):
     rollbar.init(rollbar_token, env)
     rollbar_handler = RollbarHandler()
     rollbar_handler.setLevel(logging.WARNING)  # Only send WARNING and above to Rollbar
     logger.addHandler(rollbar_handler)
+
+
+def _get_rollbar_extra_data():
+    """
+    Get standard extra_data dict for Rollbar reports from Environment.
+
+    Includes source identification and execution context to help differentiate
+    from API reports and enable grouping of related errors.
+    """
+    return {
+        "source": "trends.earth-environment",
+        "execution_id": os.getenv("EXECUTION_ID"),
+        "env": os.getenv("ENV"),
+    }
 
 
 def handle_exception(exc_type, exc_value, exc_traceback):
@@ -42,9 +60,19 @@ def handle_exception(exc_type, exc_value, exc_traceback):
         exc_info=(exc_type, exc_value, exc_traceback),
     )
 
-    # Also report to Rollbar with full exception info
+    # Also report to Rollbar with full exception info and source identification
+    # Note: RollbarHandler may also report this via logger.error above, but
+    # we include extra_data here for richer context in Rollbar
     if rollbar_token and os.getenv("ENV") not in ("test", "testing"):
-        rollbar.report_exc_info(exc_info=(exc_type, exc_value, exc_traceback))
+        extra_data = _get_rollbar_extra_data()
+        extra_data["exception_type"] = exc_type.__name__
+        extra_data["exception_message"] = str(exc_value)[
+            :500
+        ]  # Truncate large messages
+        rollbar.report_exc_info(
+            exc_info=(exc_type, exc_value, exc_traceback),
+            extra_data=extra_data,
+        )
 
 
 sys.excepthook = handle_exception

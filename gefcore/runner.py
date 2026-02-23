@@ -15,9 +15,9 @@ try:
 except ImportError:
     main = None
 
-# Use ROLLBAR_SCRIPT_TOKEN if set, otherwise fall back to ROLLBAR_SERVER_TOKEN
-rollbar_token = os.getenv("ROLLBAR_SCRIPT_TOKEN") or os.getenv("ROLLBAR_SERVER_TOKEN")
-rollbar.init(rollbar_token, os.getenv("ENV"))
+# Note: Rollbar is already initialized in gefcore/__init__.py.
+# We only need access to the rollbar module here for reporting - no need to re-init.
+rollbar_token = os.getenv("ROLLBAR_SCRIPT_TOKEN")
 
 # Silence warning about file_cache being unavailable. See more here:
 # https://github.com/googleapis/google-api-python-client/issues/299
@@ -59,16 +59,23 @@ def initialize_earth_engine():
             return
 
     # No credentials available
+    from gefcore import _get_rollbar_extra_data
+
     error_msg = "No Google Earth Engine credentials available. Please provide either OAuth tokens or service account credentials."
     logging.error(error_msg)
-    rollbar.report_message(
-        "Missing GEE credentials",
-        extra_data={
+    extra_data = _get_rollbar_extra_data()
+    extra_data.update(
+        {
             "oauth_available": bool(os.getenv("GEE_OAUTH_ACCESS_TOKEN")),
             "service_account_available": bool(
                 os.getenv("EE_SERVICE_ACCOUNT_JSON") or _has_service_account_file()
             ),
-        },
+            "error_location": "initialize_earth_engine",
+        }
+    )
+    rollbar.report_message(
+        "Missing GEE credentials",
+        extra_data=extra_data,
     )
     raise RuntimeError(error_msg)
 
@@ -107,15 +114,20 @@ def _initialize_ee_with_oauth():
     except Exception as e:
         import traceback
 
+        from gefcore import _get_rollbar_extra_data
+
         full_traceback = traceback.format_exc()
         logging.error(
             f"Failed to initialize Earth Engine with OAuth: {e}\n\nFull traceback:\n{full_traceback}"
         )
-        rollbar.report_exc_info(
-            extra_data={
-                "oauth_client_id": os.getenv("GOOGLE_OAUTH_CLIENT_ID") is not None
+        extra_data = _get_rollbar_extra_data()
+        extra_data.update(
+            {
+                "oauth_client_id": os.getenv("GOOGLE_OAUTH_CLIENT_ID") is not None,
+                "error_location": "_initialize_ee_with_oauth",
             }
         )
+        rollbar.report_exc_info(extra_data=extra_data)
         return False
 
 
@@ -196,18 +208,23 @@ def _initialize_ee_with_service_account():
     except Exception as e:
         import traceback
 
+        from gefcore import _get_rollbar_extra_data
+
         full_traceback = traceback.format_exc()
         logging.error(
             f"Failed to initialize Earth Engine with service account: {e}\n\nFull traceback:\n{full_traceback}"
         )
-        rollbar.report_exc_info(
-            extra_data={
+        extra_data = _get_rollbar_extra_data()
+        extra_data.update(
+            {
                 "service_account_file_exists": _has_service_account_file(),
                 "service_account_env_available": bool(
                     os.getenv("EE_SERVICE_ACCOUNT_JSON")
                 ),
+                "error_location": "_initialize_ee_with_service_account",
             }
         )
+        rollbar.report_exc_info(extra_data=extra_data)
         return False
 
 
@@ -230,6 +247,8 @@ def send_result(results):
 
 def run():
     """Runs the user script"""
+    from gefcore import _get_rollbar_extra_data
+
     logger = get_logger(__name__)
     logging.info("Starting run() function")
     try:
@@ -272,5 +291,14 @@ def run():
             logger.error(
                 f"Script execution failed: {str(error)}\n\nFull traceback:\n{full_traceback}"
             )
-        rollbar.report_exc_info()
+
+        # Report to Rollbar with full context
+        # Note: This is the primary error report for script execution failures.
+        # The API should NOT report this same error again to avoid duplicates.
+        extra_data = _get_rollbar_extra_data()
+        extra_data["error_location"] = "runner.run()"
+        extra_data["error_type"] = type(error).__name__
+        # Truncate error message to avoid large payloads
+        extra_data["error_message"] = str(error)[:1000]
+        rollbar.report_exc_info(extra_data=extra_data)
         raise error
