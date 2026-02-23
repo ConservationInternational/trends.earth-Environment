@@ -75,10 +75,131 @@ class TestInitializeEarthEngine:
         with pytest.raises(RuntimeError):
             runner.initialize_earth_engine()
 
-        mock_rollbar_report.assert_called_once_with(
-            "Missing GEE credentials",
-            extra_data={"oauth_available": False, "service_account_available": False},
-        )
+        mock_rollbar_report.assert_called_once()
+        call_kwargs = mock_rollbar_report.call_args
+        assert call_kwargs[0][0] == "Missing GEE credentials"
+        extra = call_kwargs[1]["extra_data"]
+        # Core credential availability flags must be present
+        assert extra["oauth_available"] is False
+        assert extra["service_account_available"] is False
+        # Rollbar context fields from _get_rollbar_extra_data()
+        assert extra["source"] == "trends.earth-environment"
+        assert extra["error_location"] == "initialize_earth_engine"
+
+    @patch.dict(
+        os.environ,
+        {"GEE_OAUTH_ACCESS_TOKEN": "tok", "GEE_OAUTH_REFRESH_TOKEN": "ref"},
+    )
+    @patch("gefcore.runner._initialize_ee_with_oauth")
+    def test_initialize_earth_engine_oauth_success(self, mock_oauth):
+        """Test initialization succeeds via OAuth path."""
+        mock_oauth.return_value = True
+        # Should not raise
+        runner.initialize_earth_engine()
+        mock_oauth.assert_called_once()
+
+    @patch.dict(
+        os.environ,
+        {"GEE_OAUTH_ACCESS_TOKEN": "tok", "GEE_OAUTH_REFRESH_TOKEN": "ref"},
+    )
+    @patch("gefcore.runner._initialize_ee_with_oauth")
+    @patch("gefcore.runner._has_service_account_file")
+    @patch("gefcore.runner._initialize_ee_with_service_account")
+    def test_initialize_earth_engine_oauth_fallback(
+        self, mock_sa_init, mock_has_sa, mock_oauth
+    ):
+        """Test fallback to service account when OAuth fails."""
+        mock_oauth.return_value = False
+        mock_has_sa.return_value = True
+        mock_sa_init.return_value = True
+        runner.initialize_earth_engine()
+        mock_oauth.assert_called_once()
+        mock_sa_init.assert_called_once()
+
+
+class TestInitializeEEWithOAuth:
+    """Test the _initialize_ee_with_oauth helper."""
+
+    @patch.dict(
+        os.environ,
+        {
+            "GEE_OAUTH_ACCESS_TOKEN": "access",
+            "GEE_OAUTH_REFRESH_TOKEN": "refresh",
+            "GOOGLE_OAUTH_CLIENT_ID": "cid",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "csecret",
+        },
+    )
+    @patch("ee.Initialize")
+    def test_oauth_success(self, mock_ee_init):
+        """Test successful OAuth initialization."""
+        result = runner._initialize_ee_with_oauth()
+        assert result is True
+        mock_ee_init.assert_called_once()
+
+    @patch.dict(
+        os.environ,
+        {
+            "GEE_OAUTH_ACCESS_TOKEN": "access",
+            "GEE_OAUTH_REFRESH_TOKEN": "refresh",
+        },
+    )
+    @patch("ee.Initialize", side_effect=Exception("ee error"))
+    @patch("rollbar.report_exc_info")
+    def test_oauth_ee_error(self, mock_rollbar, mock_ee_init):
+        """Test OAuth initialization returns False on EE error."""
+        result = runner._initialize_ee_with_oauth()
+        assert result is False
+        mock_rollbar.assert_called_once()
+
+
+class TestInitializeEEWithServiceAccount:
+    """Test the _initialize_ee_with_service_account helper."""
+
+    @patch.dict(os.environ, {"EE_SERVICE_ACCOUNT_JSON": ""}, clear=False)
+    @patch("gefcore.runner._has_service_account_file", return_value=False)
+    def test_no_credentials_returns_false(self, mock_has_file):
+        """Test returns False when no service account credentials available."""
+        # Remove env var so it's falsy
+        os.environ.pop("EE_SERVICE_ACCOUNT_JSON", None)
+        result = runner._initialize_ee_with_service_account()
+        assert result is False
+
+    @patch.dict(
+        os.environ,
+        {"EE_SERVICE_ACCOUNT_JSON": ""},
+        clear=False,
+    )
+    @patch("ee.Initialize", side_effect=Exception("sa error"))
+    @patch("ee.ServiceAccountCredentials")
+    @patch("rollbar.report_exc_info")
+    @patch("gefcore.runner._has_service_account_file", return_value=False)
+    def test_service_account_general_exception(
+        self, mock_has_file, mock_rollbar, mock_sa_creds, mock_ee_init
+    ):
+        """Test outer except block reports to Rollbar."""
+        import base64
+        import json
+
+        sa_json = json.dumps({"client_email": "test@test.iam.gserviceaccount.com"})
+        os.environ["EE_SERVICE_ACCOUNT_JSON"] = base64.b64encode(
+            sa_json.encode()
+        ).decode()
+        # Force the outer except by making ServiceAccountCredentials raise
+        mock_sa_creds.side_effect = Exception("sa error")
+        result = runner._initialize_ee_with_service_account()
+        assert result is False
+        mock_rollbar.assert_called_once()
+
+    @patch.dict(
+        os.environ,
+        {"EE_SERVICE_ACCOUNT_JSON": "not-valid-base64!!!"},
+        clear=False,
+    )
+    @patch("gefcore.runner._has_service_account_file", return_value=False)
+    def test_bad_base64_returns_false(self, mock_has_file):
+        """Test returns False when base64 decode fails."""
+        result = runner._initialize_ee_with_service_account()
+        assert result is False
 
 
 class TestStatusAndResultFunctions:

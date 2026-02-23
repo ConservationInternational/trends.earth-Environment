@@ -6,6 +6,7 @@ pytest-cov>=6.2.1
 # Code quality tools
 ruff>=0.12.9
 mypy>=1.17.1
+types-requests>=2.31.0
 
 # Security scanning
 bandit>=1.8.6
