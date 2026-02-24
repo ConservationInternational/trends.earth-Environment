@@ -279,6 +279,7 @@ def run():
     logger.info(f"Environment git SHA: {git_sha}")
 
     try:
+        logger.info(f"Earth Engine API version: {ee.__version__}")
         logger.info("About to initialize Earth Engine...")
         # Initialize Earth Engine if needed
         initialize_earth_engine()
