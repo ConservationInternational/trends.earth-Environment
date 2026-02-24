@@ -17,7 +17,7 @@ class GEFLogger(logging.Logger):
         polling thread.
         """
         env = os.getenv("ENV", "dev")
-        if env == "prod":
+        if env in ("prod", "production"):
             try:
                 patch_execution(json={"progress": progress})
             except Exception as exc:
@@ -124,7 +124,7 @@ def get_logger(name=None):
     if logger.hasHandlers():
         logger.handlers.clear()
 
-    if env == "prod":
+    if env in ("prod", "production"):
         handler = ServerLogHandler()
         formatter = logging.Formatter("%(message)s")
         handler.setFormatter(formatter)
