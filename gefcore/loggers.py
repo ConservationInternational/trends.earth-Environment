@@ -25,12 +25,11 @@ class ServerLogHandler(logging.Handler):
     """A logging handler that sends logs to the server via API calls.
 
     Log entries are enqueued synchronously (cheap) and a single daemon
-    sender thread drains the queue in FIFO order.  This guarantees that:
+    sender thread drains the queue in FIFO order.  This guarantees that
+    messages arrive at the API in the order they were logged.
 
-    The sender thread is a daemon thread so it is killed automatically
-    on process exit — any remaining queued entries are discarded, which
-    is acceptable because all messages are always written to stderr first
-    by the preceding handler in the chain.
+    Call ``ServerLogHandler.flush_queue()`` before process exit to ensure
+    all queued messages are delivered.
     """
 
     _queue: queue.Queue = queue.Queue()
@@ -59,6 +58,21 @@ class ServerLogHandler(logging.Handler):
                     target=cls._sender_loop, daemon=True
                 )
                 cls._sender_thread.start()
+
+    @classmethod
+    def flush_queue(cls, timeout=60):
+        """Block until all queued log entries have been sent.
+
+        Call this before ``sys.exit()`` to ensure no messages are lost
+        when the daemon sender thread is killed on process exit.
+
+        Args:
+            timeout: Maximum seconds to wait. Defaults to 60.
+        """
+        try:
+            cls._queue.join()
+        except Exception:  # noqa: S110
+            pass
 
     @classmethod
     def _sender_loop(cls):
