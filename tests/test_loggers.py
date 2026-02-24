@@ -62,7 +62,7 @@ class TestServerLogHandler:
 
     @patch("gefcore.loggers.save_log")
     def test_emit_calls_save_log_api(self, mock_save_log):
-        """Test that emit method calls save_log API."""
+        """Test that emit method calls save_log API via a daemon thread."""
         handler = loggers.ServerLogHandler()
 
         # Create a log record
@@ -78,20 +78,26 @@ class TestServerLogHandler:
 
         handler.emit(record)
 
+        # Give the fire-and-forget daemon thread time to execute
+        import time
+
+        time.sleep(0.2)
+
         mock_save_log.assert_called_once()
         call_args = mock_save_log.call_args
         assert call_args[1]["json"]["text"] == "Test message"
         assert call_args[1]["json"]["level"] == "INFO"
 
     @patch("gefcore.loggers.save_log")
-    def test_emit_handles_exceptions(self, mock_save_log):
-        """Test that emit method handles exceptions gracefully."""
+    def test_emit_handles_exceptions(self, mock_save_log, capsys):
+        """Test that emit handles exceptions in its daemon thread gracefully.
+
+        When save_log raises, the error is printed to stderr (not via
+        handleError) because the call runs in a fire-and-forget thread.
+        """
         mock_save_log.side_effect = Exception("API call failed")
 
         handler = loggers.ServerLogHandler()
-
-        # Mock the handleError method to verify it gets called
-        handler.handleError = MagicMock()
 
         record = logging.LogRecord(
             name="test_logger",
@@ -106,8 +112,14 @@ class TestServerLogHandler:
         # Should not raise an exception
         handler.emit(record)
 
-        # Verify handleError was called
-        handler.handleError.assert_called_once_with(record)
+        # Give the daemon thread time to run and hit the exception
+        import time
+
+        time.sleep(0.5)
+
+        # Verify the error was reported on stderr
+        captured = capsys.readouterr()
+        assert "API call failed" in captured.err
 
 
 class TestGetLoggerFunction:
