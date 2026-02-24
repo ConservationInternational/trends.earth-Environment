@@ -25,14 +25,17 @@ ENV LC_ALL=en_US.UTF-8
 COPY requirements.txt /project/requirements-environment.txt
 RUN pip install --no-cache-dir -r /project/requirements-environment.txt
 
+# Bake the git commit SHA into the image so every execution can be
+# traced back to the exact source that built it.  Placing the ARG
+# before the source COPY commands means a new commit (different SHA)
+# invalidates the Docker cache for all source layers below.
+ARG GIT_SHA=unknown
+
 # --- Source layers: least-frequently-changed files first ---
 COPY --chown=script:script entrypoint.sh /project/entrypoint.sh
 COPY --chown=script:script main.py /project/main.py
 COPY --chown=script:script gefcore /project/gefcore
 
-# Bake the git commit SHA into the image so every execution can be
-# traced back to the exact source that built it.
-ARG GIT_SHA=unknown
 ENV GIT_SHA=${GIT_SHA}
 
 # Ensure the script user owns /project so entrypoint.sh can write
