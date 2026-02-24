@@ -5,6 +5,8 @@ import os
 import sys
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 class TestGefcoreInit:
     """Test the gefcore.__init__ module."""
@@ -134,12 +136,16 @@ class TestGefcoreInit:
         pytest_module = sys.modules.pop("pytest", None)
 
         try:
-            # Reload the module to trigger runner execution
+            # Reload the module to trigger runner execution.
+            # run() now calls sys.exit(0) on success, so we expect SystemExit.
             import importlib
 
             import gefcore
 
-            importlib.reload(gefcore)
+            with pytest.raises(SystemExit) as exc_info:
+                importlib.reload(gefcore)
+
+            assert exc_info.value.code == 0
 
             # Verify runner.run was called
             mock_run.assert_called_once()
@@ -170,21 +176,37 @@ class TestGefcoreInit:
 
         # Temporarily remove test environment
         original_env = os.environ.get("ENV")
+        original_testing = os.environ.get("TESTING")
+        original_argv = sys.argv[:]
+
         if "ENV" in os.environ:
             del os.environ["ENV"]
+        if "TESTING" in os.environ:
+            del os.environ["TESTING"]
+
+        sys.argv = ["script.py"]
+        pytest_module = sys.modules.pop("pytest", None)
 
         try:
-            # Should not raise an exception, just log a warning
+            # ImportError now causes sys.exit(1)
             import importlib
 
             import gefcore
 
-            importlib.reload(gefcore)
+            with pytest.raises(SystemExit) as exc_info:
+                importlib.reload(gefcore)
+
+            assert exc_info.value.code == 1
 
         finally:
             # Restore environment
-            if original_env:
+            if original_env is not None:
                 os.environ["ENV"] = original_env
+            if original_testing is not None:
+                os.environ["TESTING"] = original_testing
+            sys.argv = original_argv
+            if pytest_module is not None:
+                sys.modules["pytest"] = pytest_module
 
     @patch("gefcore.runner.run")
     def test_file_not_found_error_handling(self, mock_run, capture_logs):
@@ -215,10 +237,13 @@ class TestGefcoreInit:
         pytest_module = sys.modules.pop("pytest", None)
 
         try:
-            # Reload to trigger the exception
+            # Reload to trigger the exception — now calls sys.exit(1)
             import importlib
 
-            importlib.reload(gefcore)
+            with pytest.raises(SystemExit) as exc_info:
+                importlib.reload(gefcore)
+
+            assert exc_info.value.code == 1
 
             # Should log a warning
             log_output = capture_logs.getvalue()
@@ -263,10 +288,13 @@ class TestGefcoreInit:
         pytest_module = sys.modules.pop("pytest", None)
 
         try:
-            # Reload to trigger the exception
+            # Reload to trigger the exception — now calls sys.exit(1)
             import importlib
 
-            importlib.reload(gefcore)
+            with pytest.raises(SystemExit) as exc_info:
+                importlib.reload(gefcore)
+
+            assert exc_info.value.code == 1
 
             # Should log an error
             log_output = capture_logs.getvalue()

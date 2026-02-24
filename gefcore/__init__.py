@@ -95,7 +95,17 @@ if should_run:
         run()
     except ImportError as e:
         logger.warning(f"Could not import runner: {e}")
+        sys.exit(1)
     except FileNotFoundError as e:
         logger.warning(f"Service account file not found: {e}")
+        sys.exit(1)
     except Exception as e:
         logger.error(f"Error running main script: {e}")
+        sys.exit(1)
+    else:
+        # Explicit clean exit so the process terminates immediately.
+        # Without this, cleanup during interpreter shutdown can
+        # produce a non-zero exit code, which (with a Swarm
+        # "on-failure" restart policy) would cause the container to
+        # be rescheduled — re-running an already-finished execution.
+        sys.exit(0)
