@@ -21,13 +21,22 @@ ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
 
-ADD requirements.txt /project/requirements-environment.txt
-RUN pip install -r /project/requirements-environment.txt
+# --- pip install layer (cached until requirements.txt changes) ---
+COPY requirements.txt /project/requirements-environment.txt
+RUN pip install --no-cache-dir -r /project/requirements-environment.txt
 
-COPY gefcore /project/gefcore
-COPY main.py /project/main.py
-COPY entrypoint.sh /project/entrypoint.sh
+# --- Source layers: least-frequently-changed files first ---
+COPY --chown=script:script entrypoint.sh /project/entrypoint.sh
+COPY --chown=script:script main.py /project/main.py
+COPY --chown=script:script gefcore /project/gefcore
 
+# Bake the git commit SHA into the image so every execution can be
+# traced back to the exact source that built it.
+ARG GIT_SHA=unknown
+ENV GIT_SHA=${GIT_SHA}
+
+# Ensure the script user owns /project so entrypoint.sh can write
+# temporary files (e.g. service_account.json) at runtime.
 RUN chown $USER:$USER /project
 
 WORKDIR /project

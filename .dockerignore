@@ -1,0 +1,41 @@
+# Version control
+.git
+.github
+.gitignore
+
+# Python caches
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+
+# Virtual environments
+venv
+.venv
+
+# Test / dev artifacts
+tests
+htmlcov
+coverage.xml
+.coverage
+.pytest_cache
+.ruff_cache
+
+# IDE / editor
+.vscode
+.editorconfig
+
+# Dev-only files
+requirements-dev.txt
+pyproject.toml
+pylintrc
+run_tests.sh
+run_tests.ps1
+scripts
+build.bat
+build.sh
+.bandit
+
+# Docs
+README.md
+LICENSE

@@ -271,27 +271,26 @@ def run():
     from gefcore import _get_rollbar_extra_data
 
     logger = get_logger(__name__)
-    logging.info("Starting run() function")
+    logger.info("Starting run() function")
 
-    # Log the Docker image SHA so every execution can be traced back to the
-    # exact image that ran it.  The value is injected by the API when it
-    # creates the Docker service/container (see DockerService.run).
-    image_sha = os.getenv("IMAGE_SHA", "unknown")
-    logging.info(f"Docker image SHA: {image_sha}")
+    # Log the git commit SHA baked into this Docker image so every
+    # execution can be traced back to the exact source that built it.
+    git_sha = os.getenv("GIT_SHA", "unknown")
+    logger.info(f"Environment git SHA: {git_sha}")
 
     try:
-        logging.info("About to initialize Earth Engine...")
+        logger.info("About to initialize Earth Engine...")
         # Initialize Earth Engine if needed
         initialize_earth_engine()
-        logging.info("Earth Engine initialization completed successfully")
+        logger.info("Earth Engine initialization completed successfully")
 
         logging.debug("Creating logger")
         # Getting logger
-        logging.info("About to change status to RUNNING...")
+        logger.info("About to change status to RUNNING...")
         change_status_ticket("RUNNING")  # running
-        logging.info("Status changed to RUNNING, now getting parameters...")
+        logger.info("Status changed to RUNNING, now getting parameters...")
         params = get_params()
-        logging.info("Parameters retrieved successfully")
+        logger.info("Parameters retrieved successfully")
         if params is not None:
             params["ENV"] = os.getenv("ENV", None)
             params["EXECUTION_ID"] = os.getenv("EXECUTION_ID", None)
@@ -303,13 +302,13 @@ def run():
         if main is None:
             raise ImportError("gefcore.script.main module not found")
 
-        logging.info("About to run main script...")
+        logger.info("About to run main script...")
         result = main.run(params, logger)
-        logging.info("Main script completed, sending results...")
+        logger.info("Main script completed, sending results...")
         send_result(result)
-        logging.info("Results sent successfully")
+        logger.info("Results sent successfully")
     except Exception as error:
-        logging.error(f"Error in run() function: {error}")
+        logger.error(f"Error in run() function: {error}")
         change_status_ticket("FAILED")  # failed
         if logger:
             # Log the full exception with traceback to the API
