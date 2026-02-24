@@ -125,16 +125,31 @@ def get_logger(name=None):
         logger.handlers.clear()
 
     if env in ("prod", "production"):
-        handler = ServerLogHandler()
-        formatter = logging.Formatter("%(message)s")
-        handler.setFormatter(formatter)
+        # First: write to stderr so that Docker container logs always
+        # capture output instantly, even when the API is unreachable
+        # (expired auth, network issues, etc.).  Handlers are called in
+        # order, so putting this first ensures the message reaches
+        # container logs before the potentially-blocking API call.
+        stderr_handler = logging.StreamHandler()
+        stderr_formatter = logging.Formatter(
+            "%(asctime)s - %(levelname)s - %(message)s"
+        )
+        stderr_handler.setFormatter(stderr_formatter)
+        logger.addHandler(stderr_handler)
+
+        # Second: send logs to the API so they appear in the execution
+        # log visible from the UI.  If this handler blocks (due to auth
+        # refresh retries), stderr has already received the message.
+        server_handler = ServerLogHandler()
+        server_formatter = logging.Formatter("%(message)s")
+        server_handler.setFormatter(server_formatter)
+        logger.addHandler(server_handler)
     else:
         handler = logging.StreamHandler()
         formatter = logging.Formatter(
             "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
         )
         handler.setFormatter(formatter)
-
-    logger.addHandler(handler)
+        logger.addHandler(handler)
 
     return logger
