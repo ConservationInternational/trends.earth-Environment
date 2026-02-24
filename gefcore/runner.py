@@ -266,9 +266,7 @@ def run():
     from gefcore import _get_rollbar_extra_data
 
     git_sha = os.getenv("GIT_SHA", "unknown")
-    logger.info(
-        f"Starting execution (git SHA: {git_sha}, EE API {ee.__version__})"
-    )
+    logger.info(f"Starting execution (git SHA: {git_sha}, EE API {ee.__version__})")
 
     try:
         initialize_earth_engine()

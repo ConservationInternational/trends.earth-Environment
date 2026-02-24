@@ -118,7 +118,7 @@ class ServerLogHandler(logging.Handler):
                     f"Original log message that failed to send: {original_message}",
                     file=sys.stderr,
                 )
-            except Exception:
+            except Exception:  # noqa: S110
                 pass  # Last resort — nothing more we can do
 
 
