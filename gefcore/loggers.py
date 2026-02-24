@@ -2,84 +2,95 @@
 
 import logging
 import os
+import queue
 import sys
 import threading
 
 from gefcore.api import patch_execution, save_log
 
 
-def _fire_and_forget(func, *args, **kwargs):
-    """Run *func* in a daemon thread so the caller never blocks.
-
-    If ``save_log`` or ``patch_execution`` trigger lengthy auth-retry
-    loops (expired tokens → refresh retries → login retries) the calling
-    thread would be blocked for minutes.  By delegating the call to a
-    daemon thread the GEE polling thread keeps running normally.
-
-    Daemon threads are automatically killed when the process exits, so
-    queued-but-unfinished API calls are simply discarded — acceptable
-    because the important messages are already on stderr.
-    """
-    t = threading.Thread(target=func, args=args, kwargs=kwargs, daemon=True)
-    t.start()
-
-
 class GEFLogger(logging.Logger):
     """Custom logger class with send_progress method."""
 
     def send_progress(self, progress):
-        """Send script execution progress.
-
-        The PATCH request is dispatched in a fire-and-forget daemon
-        thread so that API failures (expired tokens, network issues,
-        lengthy retry loops) never block the GEE task polling thread.
-        """
+        """Send script execution progress."""
         env = os.getenv("ENV", "dev")
         if env in ("prod", "production"):
-            _fire_and_forget(self._do_send_progress, progress)
+            patch_execution(json={"progress": progress})
         else:
             self.info(f"Progress: {progress}%")
-
-    # ------------------------------------------------------------------
-    # Private helpers executed in daemon threads
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _do_send_progress(progress):
-        try:
-            patch_execution(json={"progress": progress})
-        except Exception as exc:
-            # stderr only — never call save_log here to avoid recursion.
-            print(
-                f"send_progress failed (progress={progress}): {exc}",
-                file=sys.stderr,
-            )
 
 
 class ServerLogHandler(logging.Handler):
     """A logging handler that sends logs to the server via API calls.
 
-    The actual HTTP POST (``save_log``) is dispatched to a fire-and-forget
-    daemon thread so that the calling thread is never blocked — even when
-    the API auth chain needs lengthy retries (refresh → login → backoff).
-    All formatting and validation are done synchronously (cheap) before
-    the async hand-off so that log records are captured correctly.
+    Log entries are enqueued synchronously (cheap) and a single daemon
+    sender thread drains the queue in FIFO order.  This guarantees that:
+
+    The sender thread is a daemon thread so it is killed automatically
+    on process exit — any remaining queued entries are discarded, which
+    is acceptable because all messages are always written to stderr first
+    by the preceding handler in the chain.
     """
 
+    _queue: queue.Queue = queue.Queue()
+    _sender_thread: threading.Thread | None = None
+    _lock: threading.Lock = threading.Lock()
+
     def emit(self, record):
-        """Format the record synchronously, then POST it asynchronously."""
+        """Format the record synchronously, then enqueue for async POST."""
         try:
             log_entry = self._prepare_entry(record)
-            _fire_and_forget(self._try_save, log_entry, record.getMessage())
+            ServerLogHandler._queue.put((log_entry, record.getMessage()))
+            ServerLogHandler._ensure_sender_running()
         except Exception:
             self.handleError(record)
 
     # ------------------------------------------------------------------
-    # Helpers
+    # Sender thread management
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _ensure_sender_running(cls):
+        """Start the sender thread if it is not already alive."""
+        with cls._lock:
+            if cls._sender_thread is None or not cls._sender_thread.is_alive():
+                cls._sender_thread = threading.Thread(
+                    target=cls._sender_loop, daemon=True
+                )
+                cls._sender_thread.start()
+
+    @classmethod
+    def _sender_loop(cls):
+        """Drain the queue in order, one save_log() call at a time."""
+        while True:
+            log_entry, original_message = cls._queue.get()
+            try:
+                save_log(json=log_entry)
+            except Exception as e:
+                try:
+                    error_msg = f"Failed to save log entry: {e}"
+                    if hasattr(e, "response") and hasattr(
+                        getattr(e, "response", None) or object(), "status_code"
+                    ):
+                        error_msg += f" (HTTP {e.response.status_code})"
+                    print(f"Logger error: {error_msg}", file=sys.stderr)
+                    print(
+                        f"Original log message that failed to send: "
+                        f"{original_message}",
+                        file=sys.stderr,
+                    )
+                except Exception:  # noqa: S110
+                    pass  # Last resort — nothing more we can do
+            finally:
+                cls._queue.task_done()
+
+    # ------------------------------------------------------------------
+    # Payload preparation (runs in caller thread)
     # ------------------------------------------------------------------
 
     def _prepare_entry(self, record):
-        """Build the JSON payload to send to the API (runs in caller thread)."""
+        """Build the JSON payload to send to the API."""
         formatted_message = self.format(record)
 
         # Include full traceback if present
@@ -102,24 +113,6 @@ class ServerLogHandler(logging.Handler):
             level = "INFO"
 
         return {"text": str(formatted_message), "level": level}
-
-    @staticmethod
-    def _try_save(log_entry, original_message):
-        """POST the log entry to the API (runs in a daemon thread)."""
-        try:
-            save_log(json=log_entry)
-        except Exception as e:
-            try:
-                error_msg = f"Failed to save log entry: {e}"
-                if hasattr(e, "response") and hasattr(e.response, "status_code"):
-                    error_msg += f" (HTTP {e.response.status_code})"
-                print(f"Logger error: {error_msg}", file=sys.stderr)
-                print(
-                    f"Original log message that failed to send: {original_message}",
-                    file=sys.stderr,
-                )
-            except Exception:  # noqa: S110
-                pass  # Last resort — nothing more we can do
 
 
 def get_logger(name=None):
