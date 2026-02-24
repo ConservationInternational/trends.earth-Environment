@@ -10,10 +10,25 @@ class GEFLogger(logging.Logger):
     """Custom logger class with send_progress method."""
 
     def send_progress(self, progress):
-        """Send script execution progress."""
+        """Send script execution progress.
+
+        Exceptions are caught and logged to stderr so that API failures
+        (e.g. expired tokens, network issues) do not kill the GEE task
+        polling thread.
+        """
         env = os.getenv("ENV", "dev")
         if env == "prod":
-            patch_execution(json={"progress": progress})
+            try:
+                patch_execution(json={"progress": progress})
+            except Exception as exc:
+                # Log to stderr only — do NOT call save_log / self.error here
+                # to avoid a recursive failure loop.
+                import sys
+
+                print(
+                    f"send_progress failed (progress={progress}): {exc}",
+                    file=sys.stderr,
+                )
         else:
             self.info(f"Progress: {progress}%")
 

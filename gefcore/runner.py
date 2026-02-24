@@ -229,11 +229,34 @@ def _initialize_ee_with_service_account():
 
 
 def change_status_ticket(status):
-    """Ticket status changer"""
+    """Ticket status changer.
+
+    Exceptions are caught and logged when setting terminal statuses (FAILED,
+    CANCELLED) so that an API communication failure does not prevent the
+    caller from continuing or leave the execution stuck in RUNNING state.
+    """
     if ENV != "dev":
-        patch_execution(json={"status": status})
+        try:
+            patch_execution(json={"status": status})
+        except Exception as exc:
+            logging.error(
+                f"Failed to set execution status to {status}: {exc}"
+            )
+            # For terminal statuses the best we can do is report to Rollbar
+            # and let the stale-execution cleanup task on the API handle it.
+            if status in ("FAILED", "CANCELLED"):
+                import sys
+
+                print(
+                    f"CRITICAL: Could not set execution status to {status}: {exc}",
+                    file=sys.stderr,
+                )
+                # Re-raise for non-terminal statuses (e.g. RUNNING) since
+                # those are called during setup and should abort execution.
+            else:
+                raise
     else:
-        logging.info("Changing to RUNNING")
+        logging.info(f"Changing to {status}")
 
 
 def send_result(results):

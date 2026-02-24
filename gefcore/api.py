@@ -796,7 +796,7 @@ def get_params():
         return params
 
 
-@retry_api_call(max_duration_minutes=10)
+@retry_api_call(max_duration_minutes=2, max_attempts=5)
 def patch_execution(json):
     _require_var(API_URL, "API_URL")
     _require_var(EXECUTION_ID, "EXECUTION_ID")
@@ -809,7 +809,7 @@ def patch_execution(json):
     )
 
 
-@retry_api_call(max_duration_minutes=10)
+@retry_api_call(max_duration_minutes=1, max_attempts=3)
 def save_log(json):
     _require_var(API_URL, "API_URL")
     _require_var(EXECUTION_ID, "EXECUTION_ID")
