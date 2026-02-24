@@ -176,24 +176,37 @@ def _handle_api_error(
     if error_details:
         print(f"Full Error Details: {error_details}", file=sys.stderr)
 
-    # Report to Rollbar with source identification and full context
-    # Note: This reports API communication errors from the Environment's perspective.
-    # The API itself should NOT report these same errors to avoid duplicates.
+    # Report to Rollbar with source identification and full context.
+    # Wrapped in a top-level try/except so that rollbar failures never
+    # interfere with the error-handling logic below.
     try:
         extra_data = _get_rollbar_extra_data()
         extra_data.update(error_details)
         extra_data["error_location"] = f"api._handle_api_error({operation_name})"
-        # Try to capture current exception context for full traceback
-        rollbar.report_exc_info(extra_data=extra_data)
+        try:
+            rollbar.report_exc_info(extra_data=extra_data)
+        except Exception:
+            rollbar.report_message(f"Error {operation_name}", extra_data=extra_data)
     except Exception:
-        # Fallback to message-only reporting if no exception context available
-        extra_data = _get_rollbar_extra_data()
-        extra_data.update(error_details)
-        rollbar.report_message(f"Error {operation_name}", extra_data=extra_data)
+        # Last resort — don't let rollbar break the caller.
+        print(
+            f"Rollbar reporting failed in _handle_api_error({operation_name})",
+            file=sys.stderr,
+        )
 
     if raise_exception:
         raise Exception(
             f"Error {operation_name} - HTTP {response.status_code}: {response.text[:200]}"
+        )
+
+    # Even when raise_exception=False, raise for *transient* HTTP errors so
+    # that the tenacity retry wrapper can retry them.  Non-retryable client
+    # errors (400, 403, 404, 422, …) are still silently logged above.
+    if response.status_code in _RETRYABLE_STATUS_CODES:
+        raise RetryableAPIError(
+            f"Retryable error {operation_name} - HTTP {response.status_code}: "
+            f"{response.text[:200]}",
+            status_code=response.status_code,
         )
 
 
@@ -287,6 +300,23 @@ class AuthenticationError(Exception):
     pass
 
 
+class RetryableAPIError(Exception):
+    """Exception raised for transient HTTP errors (429, 5xx) that should be retried.
+
+    This is raised even when raise_exception=False so that the tenacity retry
+    wrapper can retry transient server errors.  Non-retryable client errors
+    (400, 403, 404, 422 etc.) are still silently logged.
+    """
+
+    def __init__(self, message, status_code=None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+# HTTP status codes that indicate a transient / server-side error worth retrying.
+_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+
+
 def _is_auth_error(exception):
     """Check if exception is an authentication error (401 or 403)."""
     error_str = str(exception)
@@ -294,68 +324,92 @@ def _is_auth_error(exception):
 
 
 def _log_retry_attempt(retry_state):
-    """Log retry attempt with details for debugging."""
-    from gefcore import _get_rollbar_extra_data
+    """Log retry attempt with details for debugging.
 
-    func_name = retry_state.fn.__name__
-    attempt = retry_state.attempt_number
-    exception = retry_state.outcome.exception()
+    This runs as a tenacity ``before_sleep`` callback.  Any unhandled
+    exception raised here would **abort the entire retry loop**, so every
+    operation is wrapped in try/except.
+    """
+    try:
+        from gefcore import _get_rollbar_extra_data
 
-    logger.warning(f"API call to {func_name} failed (attempt {attempt}), retrying...")
+        func_name = retry_state.fn.__name__
+        attempt = retry_state.attempt_number
+        exception = retry_state.outcome.exception()
 
-    # Print detailed error info to stderr for debugging
-    print(f"Retry {attempt} for {func_name}: {exception}", file=sys.stderr)
-
-    # If it's a requests exception, try to get more details
-    if hasattr(exception, "response"):
-        response = exception.response
-        if hasattr(response, "status_code"):
-            print(
-                f"HTTP {response.status_code}: {response.text[:500]}",
-                file=sys.stderr,
-            )
-    elif hasattr(exception, "__class__"):
-        print(f"Exception type: {exception.__class__.__name__}", file=sys.stderr)
-
-    # Report to rollbar occasionally to avoid spam
-    if (attempt <= 3 or attempt % 5 == 0) and _should_report_retry_to_rollbar(
-        func_name
-    ):
-        extra_data = _get_rollbar_extra_data()
-        extra_data.update(
-            {
-                "attempt": attempt,
-                "error": str(exception)[:500],  # Truncate to avoid large payloads
-                "error_location": f"api._log_retry_attempt({func_name})",
-            }
+        logger.warning(
+            f"API call to {func_name} failed (attempt {attempt}), retrying..."
         )
-        rollbar.report_message(
-            f"API call retry for {func_name}",
-            extra_data=extra_data,
-        )
+
+        # Print detailed error info to stderr for debugging
+        print(f"Retry {attempt} for {func_name}: {exception}", file=sys.stderr)
+
+        # If it's a requests exception, try to get more details
+        if hasattr(exception, "response"):
+            response = exception.response
+            if hasattr(response, "status_code"):
+                print(
+                    f"HTTP {response.status_code}: {response.text[:500]}",
+                    file=sys.stderr,
+                )
+        elif hasattr(exception, "__class__"):
+            print(f"Exception type: {exception.__class__.__name__}", file=sys.stderr)
+
+        # Report to rollbar occasionally to avoid spam
+        if (attempt <= 3 or attempt % 5 == 0) and _should_report_retry_to_rollbar(
+            func_name
+        ):
+            try:
+                extra_data = _get_rollbar_extra_data()
+                extra_data.update(
+                    {
+                        "attempt": attempt,
+                        "error": str(exception)[:500],
+                        "error_location": f"api._log_retry_attempt({func_name})",
+                    }
+                )
+                rollbar.report_message(
+                    f"API call retry for {func_name}",
+                    extra_data=extra_data,
+                )
+            except Exception:
+                print(
+                    f"Rollbar report failed in _log_retry_attempt for {func_name}",
+                    file=sys.stderr,
+                )
+    except Exception as exc:
+        # NEVER let this callback abort the retry loop
+        print(f"_log_retry_attempt failed (non-fatal): {exc}", file=sys.stderr)
 
 
 def _report_retry_exhausted(retry_state):
-    """Report to rollbar when retries are exhausted."""
-    from gefcore import _get_rollbar_extra_data
+    """Report to rollbar when retries are exhausted.
 
-    func_name = retry_state.fn.__name__
-    attempt = retry_state.attempt_number
-    exception = retry_state.outcome.exception()
+    Wrapped in try/except so that rollbar failures don't mask the
+    original error that exhausted retries.
+    """
+    try:
+        from gefcore import _get_rollbar_extra_data
 
-    if _should_report_retry_to_rollbar(func_name):
-        extra_data = _get_rollbar_extra_data()
-        extra_data.update(
-            {
-                "attempt": attempt,
-                "error": str(exception)[:500],  # Truncate to avoid large payloads
-                "error_location": f"api._report_retry_exhausted({func_name})",
-            }
-        )
-        rollbar.report_message(
-            f"Max retries exhausted for {func_name}",
-            extra_data=extra_data,
-        )
+        func_name = retry_state.fn.__name__
+        attempt = retry_state.attempt_number
+        exception = retry_state.outcome.exception()
+
+        if _should_report_retry_to_rollbar(func_name):
+            extra_data = _get_rollbar_extra_data()
+            extra_data.update(
+                {
+                    "attempt": attempt,
+                    "error": str(exception)[:500],
+                    "error_location": f"api._report_retry_exhausted({func_name})",
+                }
+            )
+            rollbar.report_message(
+                f"Max retries exhausted for {func_name}",
+                extra_data=extra_data,
+            )
+    except Exception as exc:
+        print(f"_report_retry_exhausted failed (non-fatal): {exc}", file=sys.stderr)
 
 
 def retry_api_call(max_duration_minutes=30, max_attempts=None):

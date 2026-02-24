@@ -239,9 +239,7 @@ def change_status_ticket(status):
         try:
             patch_execution(json={"status": status})
         except Exception as exc:
-            logging.error(
-                f"Failed to set execution status to {status}: {exc}"
-            )
+            logging.error(f"Failed to set execution status to {status}: {exc}")
             # For terminal statuses the best we can do is report to Rollbar
             # and let the stale-execution cleanup task on the API handle it.
             if status in ("FAILED", "CANCELLED"):
@@ -274,6 +272,13 @@ def run():
 
     logger = get_logger(__name__)
     logging.info("Starting run() function")
+
+    # Log the Docker image SHA so every execution can be traced back to the
+    # exact image that ran it.  The value is injected by the API when it
+    # creates the Docker service/container (see DockerService.run).
+    image_sha = os.getenv("IMAGE_SHA", "unknown")
+    logging.info(f"Docker image SHA: {image_sha}")
+
     try:
         logging.info("About to initialize Earth Engine...")
         # Initialize Earth Engine if needed
