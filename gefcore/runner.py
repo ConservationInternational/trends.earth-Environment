@@ -285,6 +285,14 @@ def run():
         initialize_earth_engine()
         logger.info("Earth Engine initialization completed successfully")
 
+        # Set a global HTTP timeout for all EE API calls so they never block
+        # forever.  Without this, any transient network issue can cause the
+        # process to hang indefinitely (timeout defaults to 0 = unlimited).
+        # 120 000 ms = 2 minutes — generous enough for any single API
+        # round-trip while still preventing indefinite hangs.
+        ee.data.setDeadline(120_000)
+        logger.info("EE API deadline set to 120 s")
+
         logging.debug("Creating logger")
         # Getting logger
         logger.info("About to change status to RUNNING...")
