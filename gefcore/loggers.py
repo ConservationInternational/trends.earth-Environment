@@ -139,6 +139,11 @@ def get_logger(name=None):
     if logger.hasHandlers():
         logger.handlers.clear()
 
+    # Prevent messages from propagating to the parent "gefcore" logger
+    # (which has its own stderr + Rollbar handlers in __init__.py).
+    # Without this, every message would appear twice on stderr.
+    logger.propagate = False
+
     if env in ("prod", "production"):
         # First: write to stderr so that Docker container logs always
         # capture output instantly, even when the API is unreachable
@@ -159,6 +164,18 @@ def get_logger(name=None):
         server_formatter = logging.Formatter("%(message)s")
         server_handler.setFormatter(server_formatter)
         logger.addHandler(server_handler)
+
+        # Third: forward WARNING+ to Rollbar so exceptions and errors
+        # are always captured even with propagate=False.  Rollbar is
+        # already initialized by gefcore.__init__ before get_logger()
+        # is called, so the handler will work immediately.
+        rollbar_token = os.getenv("ROLLBAR_SCRIPT_TOKEN")
+        if rollbar_token:
+            from rollbar.logger import RollbarHandler
+
+            rollbar_handler = RollbarHandler()
+            rollbar_handler.setLevel(logging.WARNING)
+            logger.addHandler(rollbar_handler)
     else:
         handler = logging.StreamHandler()
         formatter = logging.Formatter(

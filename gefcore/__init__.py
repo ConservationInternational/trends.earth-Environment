@@ -10,7 +10,8 @@ from rollbar.logger import RollbarHandler
 # From:
 # https://stackoverflow.com/questions/6234405/logging-uncaught-exceptions-in-python
 logger = logging.getLogger(__name__)
-handler = logging.StreamHandler(stream=sys.stdout)
+handler = logging.StreamHandler(stream=sys.stderr)
+handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
 logger.addHandler(handler)
 
 # The API passes ROLLBAR_SCRIPT_TOKEN to the container (with its own fallback

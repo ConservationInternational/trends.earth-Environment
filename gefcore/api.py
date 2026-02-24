@@ -169,13 +169,6 @@ def _handle_api_error(
     logger.error(error_msg)
     logger.debug(f"{operation_name.title()} error details: {error_details}")
 
-    # Always print API errors to stderr as backup when logging might fail
-    # This ensures we can see error details even if the API logger is failing
-    print(f"API Error Details: {error_msg}", file=sys.stderr)
-    print(f"Response Text: {response.text[:500]}", file=sys.stderr)
-    if error_details:
-        print(f"Full Error Details: {error_details}", file=sys.stderr)
-
     # Report to Rollbar with source identification and full context.
     # Wrapped in a top-level try/except so that rollbar failures never
     # interfere with the error-handling logic below.
@@ -337,23 +330,15 @@ def _log_retry_attempt(retry_state):
         attempt = retry_state.attempt_number
         exception = retry_state.outcome.exception()
 
+        # Build detailed message — goes to stderr via the logger's handler
+        detail = str(exception)
+        if hasattr(exception, "response") and hasattr(
+            getattr(exception, "response", None) or object(), "status_code"
+        ):
+            detail += f" [HTTP {exception.response.status_code}]"
         logger.warning(
-            f"API call to {func_name} failed (attempt {attempt}), retrying..."
+            f"API call to {func_name} failed (attempt {attempt}): {detail}, retrying..."
         )
-
-        # Print detailed error info to stderr for debugging
-        print(f"Retry {attempt} for {func_name}: {exception}", file=sys.stderr)
-
-        # If it's a requests exception, try to get more details
-        if hasattr(exception, "response"):
-            response = exception.response
-            if hasattr(response, "status_code"):
-                print(
-                    f"HTTP {response.status_code}: {response.text[:500]}",
-                    file=sys.stderr,
-                )
-        elif hasattr(exception, "__class__"):
-            print(f"Exception type: {exception.__class__.__name__}", file=sys.stderr)
 
         # Report to rollbar occasionally to avoid spam
         if (attempt <= 3 or attempt % 5 == 0) and _should_report_retry_to_rollbar(

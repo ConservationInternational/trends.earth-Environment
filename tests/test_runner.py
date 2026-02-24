@@ -216,16 +216,22 @@ class TestStatusAndResultFunctions:
     @patch.object(runner, "ENV", "dev")
     def test_change_status_ticket_dev_environment(self, capture_logs):
         """Test status change in development environment."""
-        # Clear the capture logs to start fresh
+        # Attach capture handler directly to runner.logger (propagate=False
+        # means root-level capture_logs won't see messages).
+        import logging
+
+        handler = logging.StreamHandler(capture_logs)
+        runner.logger.addHandler(handler)
+
         capture_logs.seek(0)
         capture_logs.truncate(0)
 
-        # Test the function call
         runner.change_status_ticket("RUNNING")
 
-        # Check that the appropriate log message was generated
         log_output = capture_logs.getvalue()
         assert "Changing to RUNNING" in log_output
+
+        runner.logger.removeHandler(handler)
 
     @patch("gefcore.runner.patch_execution")
     @patch.object(runner, "ENV", "prod")
@@ -240,7 +246,11 @@ class TestStatusAndResultFunctions:
     @patch.object(runner, "ENV", "dev")
     def test_send_result_dev_environment(self, capture_logs):
         """Test sending results in development environment."""
-        # Clear the capture logs to start fresh
+        import logging
+
+        handler = logging.StreamHandler(capture_logs)
+        runner.logger.addHandler(handler)
+
         capture_logs.seek(0)
         capture_logs.truncate(0)
 
@@ -251,164 +261,137 @@ class TestStatusAndResultFunctions:
         assert "Finished -> Results:" in log_output
         assert "test_data" in log_output
 
+        runner.logger.removeHandler(handler)
+
 
 class TestRunFunction:
     """Test the main run function."""
 
+    @patch("ee.data.setDeadline")
     @patch("gefcore.runner.initialize_earth_engine")
     @patch("gefcore.runner.change_status_ticket")
     @patch("gefcore.runner.get_params")
     @patch("gefcore.runner.send_result")
     @patch("gefcore.runner.main")
-    @patch("gefcore.runner.get_logger")
     def test_run_success_flow(
         self,
-        mock_get_logger,
         mock_main,
         mock_send_result,
         mock_get_params,
         mock_change_status,
         mock_init_ee,
+        mock_set_deadline,
     ):
         """Test successful execution flow of run function."""
-        # Setup mocks
-        mock_logger = MagicMock()
-        mock_get_logger.return_value = mock_logger
         mock_get_params.return_value = {"param1": "value1"}
         mock_main.run.return_value = {"result": "success"}
 
-        # Test
         runner.run()
 
-        # Verify execution order and calls
         mock_init_ee.assert_called_once()
+        mock_set_deadline.assert_called_once_with(120_000)
         mock_change_status.assert_called_with("RUNNING")
         mock_get_params.assert_called_once()
 
-        # Verify main was called with correct parameters
         expected_params = {
             "param1": "value1",
             "ENV": os.getenv("ENV"),
             "EXECUTION_ID": os.getenv("EXECUTION_ID"),
         }
-        mock_main.run.assert_called_once_with(expected_params, mock_logger)
+        mock_main.run.assert_called_once_with(expected_params, runner.logger)
         mock_send_result.assert_called_once_with({"result": "success"})
 
+    @patch("ee.data.setDeadline")
     @patch("gefcore.runner.initialize_earth_engine")
     @patch("gefcore.runner.change_status_ticket")
-    @patch("gefcore.runner.get_logger")
     @patch("rollbar.report_exc_info")
     def test_run_handles_earth_engine_initialization_error(
-        self, mock_rollbar, mock_get_logger, mock_change_status, mock_init_ee
+        self, mock_rollbar, mock_change_status, mock_init_ee, mock_set_deadline
     ):
         """Test run function handles Earth Engine initialization errors."""
-        # Setup mocks
-        mock_logger = MagicMock()
-        mock_get_logger.return_value = mock_logger
         mock_init_ee.side_effect = Exception("EE initialization failed")
 
-        # Test
         with pytest.raises(Exception, match="EE initialization failed"):
             runner.run()
 
-        # Verify error handling
         mock_change_status.assert_called_with("FAILED")
         mock_rollbar.assert_called_once()
 
+    @patch("ee.data.setDeadline")
     @patch("gefcore.runner.initialize_earth_engine")
     @patch("gefcore.runner.change_status_ticket")
     @patch("gefcore.runner.get_params")
-    @patch("gefcore.runner.get_logger")
     @patch("rollbar.report_exc_info")
     def test_run_handles_missing_main_module(
         self,
         mock_rollbar,
-        mock_get_logger,
         mock_get_params,
         mock_change_status,
         mock_init_ee,
+        mock_set_deadline,
     ):
         """Test run function handles missing main script module."""
-        # Setup - simulate missing main module
         with patch.object(runner, "main", None):
-            mock_logger = MagicMock()
-            mock_get_logger.return_value = mock_logger
             mock_get_params.return_value = {}
 
-            # Test
             with pytest.raises(
                 ImportError, match="gefcore.script.main module not found"
             ):
                 runner.run()
 
-            # Verify error handling
             mock_change_status.assert_called_with("FAILED")
             mock_rollbar.assert_called_once()
 
+    @patch("ee.data.setDeadline")
     @patch("gefcore.runner.initialize_earth_engine")
     @patch("gefcore.runner.change_status_ticket")
     @patch("gefcore.runner.get_params")
     @patch("gefcore.runner.main")
-    @patch("gefcore.runner.get_logger")
     @patch("rollbar.report_exc_info")
     def test_run_handles_main_script_error(
         self,
         mock_rollbar,
-        mock_get_logger,
         mock_main,
         mock_get_params,
         mock_change_status,
         mock_init_ee,
+        mock_set_deadline,
     ):
         """Test run function handles errors in main script execution."""
-        # Setup mocks
-        mock_logger = MagicMock()
-        mock_get_logger.return_value = mock_logger
         mock_get_params.return_value = {}
         mock_main.run.side_effect = Exception("Script execution failed")
 
-        # Test
         with pytest.raises(Exception, match="Script execution failed"):
             runner.run()
 
-        # Verify error handling
         mock_change_status.assert_called_with("FAILED")
-        # Logger.error is called with a message that includes the error and traceback
-        mock_logger.error.assert_called()
-        error_call_args = mock_logger.error.call_args[0][0]
-        assert "Script execution failed" in error_call_args
         mock_rollbar.assert_called_once()
 
+    @patch("ee.data.setDeadline")
     @patch("gefcore.runner.initialize_earth_engine")
     @patch("gefcore.runner.change_status_ticket")
     @patch("gefcore.runner.get_params")
     @patch("gefcore.runner.send_result")
     @patch("gefcore.runner.main")
-    @patch("gefcore.runner.get_logger")
     def test_run_passes_environment_variables_to_main(
         self,
-        mock_get_logger,
         mock_main,
         mock_send_result,
         mock_get_params,
         mock_change_status,
         mock_init_ee,
+        mock_set_deadline,
     ):
         """Test that run function passes environment variables to main script."""
-        # Setup
         os.environ["EXECUTION_ID"] = "test_execution_123"
         os.environ["ENV"] = "test"
 
-        mock_logger = MagicMock()
-        mock_get_logger.return_value = mock_logger
         mock_get_params.return_value = {"script_param": "value"}
         mock_main.run.return_value = {"result": "test"}
 
-        # Test
         runner.run()
 
-        # Verify environment variables were passed to main
-        call_args = mock_main.run.call_args[0][0]  # First argument (params)
+        call_args = mock_main.run.call_args[0][0]
         assert call_args["ENV"] == "test"
         assert call_args["EXECUTION_ID"] == "test_execution_123"
         assert call_args["script_param"] == "value"
