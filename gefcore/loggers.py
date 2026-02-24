@@ -2,8 +2,26 @@
 
 import logging
 import os
+import sys
+import threading
 
 from gefcore.api import patch_execution, save_log
+
+
+def _fire_and_forget(func, *args, **kwargs):
+    """Run *func* in a daemon thread so the caller never blocks.
+
+    If ``save_log`` or ``patch_execution`` trigger lengthy auth-retry
+    loops (expired tokens → refresh retries → login retries) the calling
+    thread would be blocked for minutes.  By delegating the call to a
+    daemon thread the GEE polling thread keeps running normally.
+
+    Daemon threads are automatically killed when the process exits, so
+    queued-but-unfinished API calls are simply discarded — acceptable
+    because the important messages are already on stderr.
+    """
+    t = threading.Thread(target=func, args=args, kwargs=kwargs, daemon=True)
+    t.start()
 
 
 class GEFLogger(logging.Logger):
@@ -12,99 +30,96 @@ class GEFLogger(logging.Logger):
     def send_progress(self, progress):
         """Send script execution progress.
 
-        Exceptions are caught and logged to stderr so that API failures
-        (e.g. expired tokens, network issues) do not kill the GEE task
-        polling thread.
+        The PATCH request is dispatched in a fire-and-forget daemon
+        thread so that API failures (expired tokens, network issues,
+        lengthy retry loops) never block the GEE task polling thread.
         """
         env = os.getenv("ENV", "dev")
         if env in ("prod", "production"):
-            try:
-                patch_execution(json={"progress": progress})
-            except Exception as exc:
-                # Log to stderr only — do NOT call save_log / self.error here
-                # to avoid a recursive failure loop.
-                import sys
-
-                print(
-                    f"send_progress failed (progress={progress}): {exc}",
-                    file=sys.stderr,
-                )
+            _fire_and_forget(self._do_send_progress, progress)
         else:
             self.info(f"Progress: {progress}%")
 
+    # ------------------------------------------------------------------
+    # Private helpers executed in daemon threads
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _do_send_progress(progress):
+        try:
+            patch_execution(json={"progress": progress})
+        except Exception as exc:
+            # stderr only — never call save_log here to avoid recursion.
+            print(
+                f"send_progress failed (progress={progress}): {exc}",
+                file=sys.stderr,
+            )
+
 
 class ServerLogHandler(logging.Handler):
-    """A logging handler that sends logs to the server via API calls."""
+    """A logging handler that sends logs to the server via API calls.
+
+    The actual HTTP POST (``save_log``) is dispatched to a fire-and-forget
+    daemon thread so that the calling thread is never blocked — even when
+    the API auth chain needs lengthy retries (refresh → login → backoff).
+    All formatting and validation are done synchronously (cheap) before
+    the async hand-off so that log records are captured correctly.
+    """
 
     def emit(self, record):
-        """Sends the log record to the server."""
+        """Format the record synchronously, then POST it asynchronously."""
         try:
-            # Include exception info if present
-            formatted_message = self.format(record)
+            log_entry = self._prepare_entry(record)
+            _fire_and_forget(self._try_save, log_entry, record.getMessage())
+        except Exception:
+            self.handleError(record)
 
-            # If there's exception info, include the full traceback
-            if record.exc_info and record.exc_info != (None, None, None):
-                import traceback
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
-                exc_text = traceback.format_exception(*record.exc_info)
-                exc_string = "".join(exc_text)
-                formatted_message += f"\n\nException details:\n{exc_string}"
+    def _prepare_entry(self, record):
+        """Build the JSON payload to send to the API (runs in caller thread)."""
+        formatted_message = self.format(record)
 
-            # Truncate message if too long to prevent API 400 errors
-            # API has a 10KB limit, so truncate at 9KB to be safe
-            max_log_length = 9000
-            if len(formatted_message) > max_log_length:
-                truncated_msg = formatted_message[:max_log_length]
-                formatted_message = (
-                    truncated_msg + "\n\n[LOG TRUNCATED - MESSAGE TOO LONG]"
-                )
+        # Include full traceback if present
+        if record.exc_info and record.exc_info != (None, None, None):
+            import traceback
 
-            log_entry = {"text": formatted_message, "level": record.levelname}
+            exc_text = traceback.format_exception(*record.exc_info)
+            formatted_message += f"\n\nException details:\n{''.join(exc_text)}"
 
-            # Validate log entry before sending to catch issues early
-            if not isinstance(log_entry["text"], str):
-                log_entry["text"] = str(log_entry["text"])
-            if not isinstance(log_entry["level"], str):
-                log_entry["level"] = str(log_entry["level"])
+        # Truncate to stay within the API's 10 KB limit
+        max_log_length = 9000
+        if len(formatted_message) > max_log_length:
+            formatted_message = (
+                formatted_message[:max_log_length]
+                + "\n\n[LOG TRUNCATED - MESSAGE TOO LONG]"
+            )
 
-            # Ensure level is uppercase and valid
-            valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-            log_entry["level"] = log_entry["level"].upper()
-            if log_entry["level"] not in valid_levels:
-                # Default to INFO if level is invalid
-                log_entry["level"] = "INFO"
+        level = record.levelname.upper()
+        if level not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+            level = "INFO"
 
+        return {"text": str(formatted_message), "level": level}
+
+    @staticmethod
+    def _try_save(log_entry, original_message):
+        """POST the log entry to the API (runs in a daemon thread)."""
+        try:
             save_log(json=log_entry)
         except Exception as e:
-            # Log the error details for debugging, but don't let it crash the application
             try:
-                # Try to get some info about what went wrong
-                error_msg = f"Failed to save log entry: {str(e)}"
-                # Check if it's a requests exception with response info
-                if hasattr(e, "__dict__") and "response" in e.__dict__:
-                    response = e.__dict__["response"]  # type: ignore
-                    if hasattr(response, "status_code"):
-                        error_msg += f" (HTTP {response.status_code})"  # type: ignore
-                        if hasattr(response, "text"):
-                            error_msg += f" - {response.text[:200]}"  # type: ignore
-
-                # Fall back to standard error handling
-                self.handleError(record)
-
-                # Also try to print to stderr as a last resort
-                import sys
-
+                error_msg = f"Failed to save log entry: {e}"
+                if hasattr(e, "response") and hasattr(e.response, "status_code"):
+                    error_msg += f" (HTTP {e.response.status_code})"
                 print(f"Logger error: {error_msg}", file=sys.stderr)
-
-                # CRITICAL: If save_log fails, also print the original log message to stderr
-                # This ensures we don't lose important error details when API logging fails
                 print(
-                    f"Original log message that failed to send: {record.getMessage()}",
+                    f"Original log message that failed to send: {original_message}",
                     file=sys.stderr,
                 )
             except Exception:
-                # If even error reporting fails, use the standard handler
-                self.handleError(record)
+                pass  # Last resort — nothing more we can do
 
 
 def get_logger(name=None):
