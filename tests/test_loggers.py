@@ -128,6 +128,40 @@ class TestServerLogHandler:
         for i, call in enumerate(mock_save_log.call_args_list):
             assert call[1]["json"]["text"] == f"Message {i}"
 
+    @patch("gefcore.loggers.save_log")
+    def test_emit_drops_reentrant_calls(self, mock_save_log):
+        """Test re-entrant emit calls are ignored to avoid deadlock."""
+        handler = loggers.ServerLogHandler()
+
+        inner_record = logging.LogRecord(
+            name="test_logger",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=2,
+            msg="Inner message",
+            args=(),
+            exc_info=None,
+        )
+
+        def recursive_save_log(*args, **kwargs):
+            handler.emit(inner_record)
+
+        mock_save_log.side_effect = recursive_save_log
+
+        outer_record = logging.LogRecord(
+            name="test_logger",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=1,
+            msg="Outer message",
+            args=(),
+            exc_info=None,
+        )
+
+        handler.emit(outer_record)
+
+        assert mock_save_log.call_count == 1
+
 
 class TestGetLoggerFunction:
     """Test the get_logger function."""

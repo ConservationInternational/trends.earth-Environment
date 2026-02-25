@@ -2,7 +2,7 @@
 
 import logging
 import os
-import sys
+import threading
 
 from gefcore.api import patch_execution, save_log
 
@@ -30,13 +30,21 @@ class ServerLogHandler(logging.Handler):
     container logs even if the API call fails.
     """
 
+    _emit_state = threading.local()
+
     def emit(self, record):
         """Format and POST the log entry to the API."""
+        if getattr(self._emit_state, "active", False):
+            return
+
         try:
+            self._emit_state.active = True
             log_entry = self._prepare_entry(record)
             save_log(json=log_entry)
         except Exception:
             self.handleError(record)
+        finally:
+            self._emit_state.active = False
 
     # ------------------------------------------------------------------
     # Payload preparation (runs in caller thread)
