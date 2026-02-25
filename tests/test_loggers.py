@@ -62,7 +62,7 @@ class TestServerLogHandler:
 
     @patch("gefcore.loggers.save_log")
     def test_emit_calls_save_log_api(self, mock_save_log):
-        """Test that emit method calls save_log API via the sender thread."""
+        """Test that emit method calls save_log API synchronously."""
         handler = loggers.ServerLogHandler()
 
         # Create a log record
@@ -78,9 +78,6 @@ class TestServerLogHandler:
 
         handler.emit(record)
 
-        # Wait for the sender thread to drain the queue
-        loggers.ServerLogHandler._queue.join()
-
         mock_save_log.assert_called_once()
         call_args = mock_save_log.call_args
         assert call_args[1]["json"]["text"] == "Test message"
@@ -88,11 +85,7 @@ class TestServerLogHandler:
 
     @patch("gefcore.loggers.save_log")
     def test_emit_handles_exceptions(self, mock_save_log, capsys):
-        """Test that emit handles exceptions in the sender thread gracefully.
-
-        When save_log raises, the error is printed to stderr from the
-        sender thread.
-        """
+        """Test that emit handles exceptions gracefully via handleError."""
         mock_save_log.side_effect = Exception("API call failed")
 
         handler = loggers.ServerLogHandler()
@@ -110,16 +103,13 @@ class TestServerLogHandler:
         # Should not raise an exception
         handler.emit(record)
 
-        # Wait for the sender thread to process the entry
-        loggers.ServerLogHandler._queue.join()
-
-        # Verify the error was reported on stderr
+        # Verify the error was reported on stderr via handleError
         captured = capsys.readouterr()
         assert "API call failed" in captured.err
 
     @patch("gefcore.loggers.save_log")
     def test_emit_preserves_message_order(self, mock_save_log):
-        """Test that messages are sent to the API in FIFO order."""
+        """Test that messages are sent to the API in order."""
         handler = loggers.ServerLogHandler()
 
         for i in range(5):
@@ -133,8 +123,6 @@ class TestServerLogHandler:
                 exc_info=None,
             )
             handler.emit(record)
-
-        loggers.ServerLogHandler._queue.join()
 
         assert mock_save_log.call_count == 5
         for i, call in enumerate(mock_save_log.call_args_list):
@@ -279,9 +267,6 @@ class TestLoggerIntegration:
 
         # Test regular logging (should call save_log through ServerLogHandler)
         logger.info("Integration test message")
-
-        # Wait for the sender thread to drain the queue
-        loggers.ServerLogHandler._queue.join()
 
         # Verify save_log was called
         assert mock_save_log.called

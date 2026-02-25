@@ -2,9 +2,7 @@
 
 import logging
 import os
-import queue
 import sys
-import threading
 
 from gefcore.api import patch_execution, save_log
 
@@ -24,80 +22,21 @@ class GEFLogger(logging.Logger):
 class ServerLogHandler(logging.Handler):
     """A logging handler that sends logs to the server via API calls.
 
-    Log entries are enqueued synchronously (cheap) and a single daemon
-    sender thread drains the queue in FIFO order.  This guarantees that
-    messages arrive at the API in the order they were logged.
-
-    Call ``ServerLogHandler.flush_queue()`` before process exit to ensure
-    all queued messages are delivered.
+    Each ``emit()`` call posts the formatted log entry to the API
+    synchronously.  Because Python's logging framework calls handlers
+    in order, messages arrive at the API in the same order they were
+    logged.  The stderr handler is always called first (added before
+    this handler in ``get_logger``), so the message is captured in
+    container logs even if the API call fails.
     """
 
-    _queue: queue.Queue = queue.Queue()
-    _sender_thread: threading.Thread | None = None
-    _lock: threading.Lock = threading.Lock()
-
     def emit(self, record):
-        """Format the record synchronously, then enqueue for async POST."""
+        """Format and POST the log entry to the API."""
         try:
             log_entry = self._prepare_entry(record)
-            ServerLogHandler._queue.put((log_entry, record.getMessage()))
-            ServerLogHandler._ensure_sender_running()
+            save_log(json=log_entry)
         except Exception:
             self.handleError(record)
-
-    # ------------------------------------------------------------------
-    # Sender thread management
-    # ------------------------------------------------------------------
-
-    @classmethod
-    def _ensure_sender_running(cls):
-        """Start the sender thread if it is not already alive."""
-        with cls._lock:
-            if cls._sender_thread is None or not cls._sender_thread.is_alive():
-                cls._sender_thread = threading.Thread(
-                    target=cls._sender_loop, daemon=True
-                )
-                cls._sender_thread.start()
-
-    @classmethod
-    def flush_queue(cls, timeout=60):
-        """Block until all queued log entries have been sent.
-
-        Call this before ``sys.exit()`` to ensure no messages are lost
-        when the daemon sender thread is killed on process exit.
-
-        Args:
-            timeout: Maximum seconds to wait. Defaults to 60.
-        """
-        try:
-            cls._queue.join()
-        except Exception:  # noqa: S110
-            pass
-
-    @classmethod
-    def _sender_loop(cls):
-        """Drain the queue in order, one save_log() call at a time."""
-        while True:
-            log_entry, original_message = cls._queue.get()
-            try:
-                save_log(json=log_entry)
-            except Exception as e:
-                try:
-                    error_msg = f"Failed to save log entry: {e}"
-                    if hasattr(e, "response") and hasattr(
-                        getattr(e, "response", None) or object(), "status_code"
-                    ):
-                        error_msg += f" (HTTP {e.response.status_code})"
-                    print(f"Logger error: {error_msg}", file=sys.stderr)
-                    print(
-                        f"Original log message that failed to send: "
-                        f"{original_message}",
-                        file=sys.stderr,
-                    )
-                except Exception:  # noqa: S110
-                    pass  # Last resort — nothing more we can do
-            finally:
-                cls._queue.task_done()
 
     # ------------------------------------------------------------------
     # Payload preparation (runs in caller thread)

@@ -81,16 +81,6 @@ sys.excepthook = handle_exception
 logger.setLevel(logging.DEBUG)
 
 
-def _flush_log_queue():
-    """Drain the ServerLogHandler queue before process exit."""
-    try:
-        from gefcore.loggers import ServerLogHandler
-
-        ServerLogHandler.flush_queue()
-    except Exception:  # noqa: S110
-        pass
-
-
 # Only run if not in test environment and TESTING is not set
 # Also check if we're running under pytest
 is_pytest = "pytest" in sys.modules or "pytest" in sys.argv[0] if sys.argv else False
@@ -107,20 +97,14 @@ if should_run:
         run()
     except ImportError as e:
         logger.warning(f"Could not import runner: {e}")
-        _flush_log_queue()
         sys.exit(1)
     except FileNotFoundError as e:
         logger.warning(f"Service account file not found: {e}")
-        _flush_log_queue()
         sys.exit(1)
     except Exception as e:
         logger.error(f"Error running main script: {e}")
-        _flush_log_queue()
         sys.exit(1)
     else:
-        # Drain the ServerLogHandler queue so all messages reach the API
-        # before the daemon sender thread is killed by sys.exit().
-        _flush_log_queue()
         # Explicit clean exit so the process terminates immediately.
         # Without this, cleanup during interpreter shutdown can
         # produce a non-zero exit code, which (with a Swarm

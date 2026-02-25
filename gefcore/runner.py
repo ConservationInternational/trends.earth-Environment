@@ -266,7 +266,7 @@ def run():
     from gefcore import _get_rollbar_extra_data
 
     git_sha = os.getenv("GIT_SHA", "unknown")
-    logger.info(f"Starting execution (git SHA: {git_sha}, EE API {ee.__version__})")
+    logger.info(f"Starting execution (trends.earth-Environment git SHA: {git_sha}, EE API {ee.__version__})")
 
     try:
         initialize_earth_engine()
@@ -294,8 +294,9 @@ def run():
             raise ImportError("gefcore.script.main module not found")
 
         result = main.run(params, logger)
-        send_result(result)
         logger.info("Execution completed successfully")
+
+        send_result(result)
     except Exception as error:
         import traceback
 
@@ -303,6 +304,7 @@ def run():
         logger.error(
             f"Script execution failed: {error}\n\nFull traceback:\n{full_traceback}"
         )
+
         change_status_ticket("FAILED")
 
         # Report to Rollbar with full context
