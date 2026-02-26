@@ -62,7 +62,7 @@ class TestServerLogHandler:
 
     @patch("gefcore.loggers.save_log")
     def test_emit_calls_save_log_api(self, mock_save_log):
-        """Test that emit method calls save_log API synchronously."""
+        """Test that emit method enqueues and sends save_log API call."""
         handler = loggers.ServerLogHandler()
 
         # Create a log record
@@ -77,6 +77,7 @@ class TestServerLogHandler:
         )
 
         handler.emit(record)
+        handler.flush()
 
         mock_save_log.assert_called_once()
         call_args = mock_save_log.call_args
@@ -102,6 +103,7 @@ class TestServerLogHandler:
 
         # Should not raise an exception
         handler.emit(record)
+        handler.flush()
 
         # Verify the error was reported on stderr via handleError
         captured = capsys.readouterr()
@@ -124,9 +126,30 @@ class TestServerLogHandler:
             )
             handler.emit(record)
 
+        handler.flush()
+
         assert mock_save_log.call_count == 5
         for i, call in enumerate(mock_save_log.call_args_list):
             assert call[1]["json"]["text"] == f"Message {i}"
+
+    @patch("gefcore.loggers.save_log")
+    def test_emit_skips_api_transport_logs(self, mock_save_log):
+        """Test that gefcore.api records are not re-sent via ServerLogHandler."""
+        handler = loggers.ServerLogHandler()
+        record = logging.LogRecord(
+            name="gefcore.api",
+            level=logging.DEBUG,
+            pathname="api.py",
+            lineno=1,
+            msg="Using existing valid access token",
+            args=(),
+            exc_info=None,
+        )
+
+        handler.emit(record)
+        handler.flush()
+
+        mock_save_log.assert_not_called()
 
     @patch("gefcore.loggers.save_log")
     def test_emit_drops_reentrant_calls(self, mock_save_log):
@@ -301,6 +324,10 @@ class TestLoggerIntegration:
 
         # Test regular logging (should call save_log through ServerLogHandler)
         logger.info("Integration test message")
+
+        for handler in logger.handlers:
+            if isinstance(handler, loggers.ServerLogHandler):
+                handler.flush()
 
         # Verify save_log was called
         assert mock_save_log.called
