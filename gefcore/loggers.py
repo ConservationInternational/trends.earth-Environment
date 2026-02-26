@@ -2,7 +2,7 @@
 
 import logging
 import os
-import threading
+from contextlib import suppress
 
 from gefcore.api import patch_execution, save_log
 
@@ -22,62 +22,47 @@ class GEFLogger(logging.Logger):
 class ServerLogHandler(logging.Handler):
     """A logging handler that sends logs to the server via API calls.
 
-    Each ``emit()`` call posts the formatted log entry to the API
-    synchronously.  Because Python's logging framework calls handlers
-    in order, messages arrive at the API in the same order they were
-    logged.  The stderr handler is always called first (added before
-    this handler in ``get_logger``), so the message is captured in
-    container logs even if the API call fails.
+    Calls ``save_log`` synchronously inside ``emit()``.  The call is
+    fire-and-forget: if it fails the exception is caught and the message
+    is already on stderr (the stderr handler runs first).
     """
 
-    _emit_state = threading.local()
-
     def emit(self, record):
-        """Format and POST the log entry to the API."""
+        """Send the log record to the server."""
+        # Skip internal API-transport messages to avoid recursion:
+        # save_log → _handle_api_error → logger.error → ServerLogHandler …
         if record.name.startswith("gefcore.api"):
-            # Avoid recursive transport logging loops from save_log internals.
-            return
-
-        if getattr(self._emit_state, "active", False):
             return
 
         try:
-            self._emit_state.active = True
-            log_entry = self._prepare_entry(record)
+            formatted_message = self.format(record)
+
+            # Include full traceback if present
+            if record.exc_info and record.exc_info != (None, None, None):
+                import traceback
+
+                exc_text = traceback.format_exception(*record.exc_info)
+                formatted_message += f"\n\nException details:\n{''.join(exc_text)}"
+
+            # Truncate to stay within the API's 10 KB limit
+            max_log_length = 9000
+            if len(formatted_message) > max_log_length:
+                formatted_message = (
+                    formatted_message[:max_log_length]
+                    + "\n\n[LOG TRUNCATED - MESSAGE TOO LONG]"
+                )
+
+            level = record.levelname.upper()
+            if level not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+                level = "INFO"
+
+            log_entry = {"text": str(formatted_message), "level": level}
             save_log(json=log_entry)
+
         except Exception:
+            # save_log already printed diagnostics to stderr via
+            # _handle_api_error; just let handleError note it and move on.
             self.handleError(record)
-        finally:
-            self._emit_state.active = False
-
-    # ------------------------------------------------------------------
-    # Payload preparation (runs in caller thread)
-    # ------------------------------------------------------------------
-
-    def _prepare_entry(self, record):
-        """Build the JSON payload to send to the API."""
-        formatted_message = self.format(record)
-
-        # Include full traceback if present
-        if record.exc_info and record.exc_info != (None, None, None):
-            import traceback
-
-            exc_text = traceback.format_exception(*record.exc_info)
-            formatted_message += f"\n\nException details:\n{''.join(exc_text)}"
-
-        # Truncate to stay within the API's 10 KB limit
-        max_log_length = 9000
-        if len(formatted_message) > max_log_length:
-            formatted_message = (
-                formatted_message[:max_log_length]
-                + "\n\n[LOG TRUNCATED - MESSAGE TOO LONG]"
-            )
-
-        level = record.levelname.upper()
-        if level not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
-            level = "INFO"
-
-        return {"text": str(formatted_message), "level": level}
 
 
 def get_logger(name=None):
@@ -95,10 +80,16 @@ def get_logger(name=None):
     logger.setLevel(logging.DEBUG)
 
     if logger.hasHandlers():
+        for existing_handler in logger.handlers:
+            with suppress(Exception):
+                existing_handler.close()
         logger.handlers.clear()
 
     api_logger = logging.getLogger("gefcore.api")
     if api_logger.hasHandlers():
+        for existing_handler in api_logger.handlers:
+            with suppress(Exception):
+                existing_handler.close()
         api_logger.handlers.clear()
     api_logger.propagate = False
     api_handler = logging.StreamHandler()
