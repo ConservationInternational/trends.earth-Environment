@@ -26,6 +26,8 @@ from tenacity import (
 
 # Configure logger for this module
 logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
+logger.propagate = False
 
 
 class UUIDEncoder(json.JSONEncoder):

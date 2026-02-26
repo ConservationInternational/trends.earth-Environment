@@ -97,6 +97,20 @@ def get_logger(name=None):
     if logger.hasHandlers():
         logger.handlers.clear()
 
+    api_logger = logging.getLogger("gefcore.api")
+    if api_logger.hasHandlers():
+        api_logger.handlers.clear()
+    api_logger.propagate = False
+    api_handler = logging.StreamHandler()
+    api_handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    )
+    api_logger.addHandler(api_handler)
+    if env in ("prod", "production"):
+        api_logger.setLevel(logging.INFO)
+    else:
+        api_logger.setLevel(logging.DEBUG)
+
     # Prevent messages from propagating to the parent "gefcore" logger
     # (which has its own stderr + Rollbar handlers in __init__.py).
     # Without this, every message would appear twice on stderr.
