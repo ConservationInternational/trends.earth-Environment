@@ -4,6 +4,7 @@ import logging
 import os
 import queue
 import threading
+from contextlib import suppress
 
 from gefcore.api import patch_execution, save_log
 
@@ -73,11 +74,8 @@ class ServerLogHandler(logging.Handler):
             except queue.Empty:
                 pass
 
-            try:
+            with suppress(queue.Full):
                 self._queue.put_nowait((log_entry, record))
-            except queue.Full:
-                # If still full, drop the message rather than blocking execution.
-                pass
 
     def _drain_queue(self):
         while True:
@@ -106,10 +104,8 @@ class ServerLogHandler(logging.Handler):
 
     def close(self):
         self._stop_event.set()
-        try:
+        with suppress(queue.Full):
             self._queue.put_nowait(None)
-        except queue.Full:
-            pass
         super().close()
 
     # ------------------------------------------------------------------
