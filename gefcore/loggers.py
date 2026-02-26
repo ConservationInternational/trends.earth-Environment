@@ -2,9 +2,7 @@
 
 import logging
 import os
-import queue
 import threading
-from contextlib import suppress
 
 from gefcore.api import patch_execution, save_log
 
@@ -34,19 +32,8 @@ class ServerLogHandler(logging.Handler):
 
     _emit_state = threading.local()
 
-    def __init__(self, max_queue_size=1000):
-        super().__init__()
-        self._queue = queue.Queue(maxsize=max_queue_size)
-        self._stop_event = threading.Event()
-        self._worker = threading.Thread(
-            target=self._drain_queue,
-            name="server-log-handler-worker",
-            daemon=True,
-        )
-        self._worker.start()
-
     def emit(self, record):
-        """Format and enqueue the log entry for asynchronous POST."""
+        """Format and POST the log entry to the API."""
         if record.name.startswith("gefcore.api"):
             # Avoid recursive transport logging loops from save_log internals.
             return
@@ -57,56 +44,11 @@ class ServerLogHandler(logging.Handler):
         try:
             self._emit_state.active = True
             log_entry = self._prepare_entry(record)
-            self._enqueue(log_entry, record)
+            save_log(json=log_entry)
         except Exception:
             self.handleError(record)
         finally:
             self._emit_state.active = False
-
-    def _enqueue(self, log_entry, record):
-        try:
-            self._queue.put_nowait((log_entry, record))
-        except queue.Full:
-            # Drop oldest and keep newest to avoid blocking caller threads.
-            try:
-                self._queue.get_nowait()
-                self._queue.task_done()
-            except queue.Empty:
-                pass
-
-            with suppress(queue.Full):
-                self._queue.put_nowait((log_entry, record))
-
-    def _drain_queue(self):
-        while True:
-            if self._stop_event.is_set() and self._queue.empty():
-                return
-
-            try:
-                item = self._queue.get(timeout=0.2)
-            except queue.Empty:
-                continue
-
-            if item is None:
-                self._queue.task_done()
-                continue
-
-            log_entry, record = item
-            try:
-                save_log(json=log_entry)
-            except Exception:
-                self.handleError(record)
-            finally:
-                self._queue.task_done()
-
-    def flush(self):
-        self._queue.join()
-
-    def close(self):
-        self._stop_event.set()
-        with suppress(queue.Full):
-            self._queue.put_nowait(None)
-        super().close()
 
     # ------------------------------------------------------------------
     # Payload preparation (runs in caller thread)
