@@ -30,6 +30,21 @@ logger.addHandler(logging.NullHandler())
 logger.propagate = False
 
 
+def _rollbar_extra_data():
+    """Build standard extra_data dict for Rollbar reports.
+
+    Inlined here (instead of importing from ``gefcore``) to avoid a lazy
+    ``from gefcore import …`` that can deadlock on the importlib lock when
+    ``gefcore.__init__`` is still executing (it calls ``run()`` at import
+    time).
+    """
+    return {
+        "source": "trends.earth-environment",
+        "execution_id": os.getenv("EXECUTION_ID"),
+        "env": os.getenv("ENV"),
+    }
+
+
 class UUIDEncoder(json.JSONEncoder):
     """Custom JSON encoder that handles UUID objects by converting them to strings."""
 
@@ -160,8 +175,6 @@ def _handle_api_error(
     Raises:
         Exception: If raise_exception is True and response status is not 200
     """
-    from gefcore import _get_rollbar_extra_data
-
     if response.status_code == 200:
         return
 
@@ -175,7 +188,7 @@ def _handle_api_error(
     # Wrapped in a top-level try/except so that rollbar failures never
     # interfere with the error-handling logic below.
     try:
-        extra_data = _get_rollbar_extra_data()
+        extra_data = _rollbar_extra_data()
         extra_data.update(error_details)
         extra_data["error_location"] = f"api._handle_api_error({operation_name})"
         try:
@@ -326,8 +339,6 @@ def _log_retry_attempt(retry_state):
     operation is wrapped in try/except.
     """
     try:
-        from gefcore import _get_rollbar_extra_data
-
         func_name = retry_state.fn.__name__
         attempt = retry_state.attempt_number
         exception = retry_state.outcome.exception()
@@ -347,7 +358,7 @@ def _log_retry_attempt(retry_state):
             func_name
         ):
             try:
-                extra_data = _get_rollbar_extra_data()
+                extra_data = _rollbar_extra_data()
                 extra_data.update(
                     {
                         "attempt": attempt,
@@ -376,14 +387,12 @@ def _report_retry_exhausted(retry_state):
     original error that exhausted retries.
     """
     try:
-        from gefcore import _get_rollbar_extra_data
-
         func_name = retry_state.fn.__name__
         attempt = retry_state.attempt_number
         exception = retry_state.outcome.exception()
 
         if _should_report_retry_to_rollbar(func_name):
-            extra_data = _get_rollbar_extra_data()
+            extra_data = _rollbar_extra_data()
             extra_data.update(
                 {
                     "attempt": attempt,
@@ -851,12 +860,25 @@ def patch_execution(json):
 
 
 def save_log(json):
+    """Best-effort single-attempt log delivery.
+
+    Does NOT call ``_handle_api_error`` — that function logs via the
+    gefcore.api logger and does a lazy ``from gefcore import …`` which
+    can deadlock on the importlib lock when called during module import.
+    Failures are printed to stderr (which is always available).
+    """
     _require_var(API_URL, "API_URL")
     _require_var(EXECUTION_ID, "EXECUTION_ID")
-    response = make_authenticated_request(
-        "POST", API_URL + "/api/v1/execution/" + EXECUTION_ID + "/log", json=json
-    )
-
-    _handle_api_error(
-        response, "saving log", request_payload=json, raise_exception=False
-    )
+    try:
+        response = make_authenticated_request(
+            "POST",
+            API_URL + "/api/v1/execution/" + EXECUTION_ID + "/log",
+            json=json,
+        )
+        if response.status_code != 200:
+            print(
+                f"save_log: HTTP {response.status_code}: {response.text[:200]}",
+                file=sys.stderr,
+            )
+    except Exception as exc:
+        print(f"save_log error: {exc}", file=sys.stderr)

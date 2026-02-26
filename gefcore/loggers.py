@@ -19,13 +19,38 @@ class GEFLogger(logging.Logger):
             self.info(f"Progress: {progress}%")
 
 
+class _NoOpLock:
+    """A lock that never blocks — satisfies the logging.Handler lock protocol."""
+
+    def acquire(self):
+        pass
+
+    def release(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+
 class ServerLogHandler(logging.Handler):
     """A logging handler that sends logs to the server via API calls.
 
     Calls ``save_log`` synchronously inside ``emit()``.  The call is
     fire-and-forget: if it fails the exception is caught and the message
     is already on stderr (the stderr handler runs first).
+
+    The handler lock is disabled (``createLock`` sets it to ``None``)
+    so that a slow or failing ``save_log`` call in one thread cannot
+    block other threads from logging.  Each ``emit`` makes an
+    independent HTTP request with no shared mutable state.
     """
+
+    def createLock(self):  # noqa: N802 — overrides stdlib method name
+        """Use a non-blocking lock so emit() never blocks other threads."""
+        self.lock = _NoOpLock()
 
     def emit(self, record):
         """Send the log record to the server."""
