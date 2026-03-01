@@ -269,15 +269,31 @@ def run():
     logger.info(f"Starting execution (trends.earth-Environment git SHA: {git_sha}, EE API {ee.__version__})")
 
     try:
-        initialize_earth_engine()
+        # Some scripts (e.g. the avoided-emissions R pipeline) do not use
+        # Google Earth Engine.  Skip GEE initialisation when the
+        # SKIP_GEE_INIT environment variable is set to a truthy value, or
+        # when the script module exposes ``REQUIRES_GEE = False``.
+        requires_gee = getattr(main, "REQUIRES_GEE", True)
+        skip_gee_env = os.getenv("SKIP_GEE_INIT", "").lower() in ("1", "true", "yes")
 
-        # Set a global HTTP timeout for all EE API calls so they never block
-        # forever.  Without this, any transient network issue can cause the
-        # process to hang indefinitely (timeout defaults to 0 = unlimited).
-        # 120 000 ms = 2 minutes — generous enough for any single API
-        # round-trip while still preventing indefinite hangs.
-        ee.data.setDeadline(120_000)
-        logger.info("EE initialized, deadline set to 120s")
+        if requires_gee and not skip_gee_env:
+            initialize_earth_engine()
+
+            # Set a global HTTP timeout for all EE API calls so they never
+            # block forever.  Without this, any transient network issue can
+            # cause the process to hang indefinitely (timeout defaults to
+            # 0 = unlimited).
+            # 120 000 ms = 2 minutes — generous enough for any single API
+            # round-trip while still preventing indefinite hangs.
+            ee.data.setDeadline(120_000)
+            logger.info("EE initialized, deadline set to 120s")
+        else:
+            logger.info(
+                "Skipping Earth Engine initialization "
+                "(REQUIRES_GEE=%s, SKIP_GEE_INIT=%s)",
+                requires_gee,
+                skip_gee_env,
+            )
 
         change_status_ticket("RUNNING")
         params = get_params()
