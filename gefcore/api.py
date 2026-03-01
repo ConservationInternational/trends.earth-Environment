@@ -846,6 +846,42 @@ def get_params():
         return params
 
 
+@retry_api_call(max_duration_minutes=10)
+def _put_results_to_s3(local_path):
+    """Upload a compressed results file to S3.
+
+    Convention: the results are stored at::
+
+        s3://{PARAMS_S3_BUCKET}/{PARAMS_S3_PREFIX}/{EXECUTION_ID}_results.json.gz
+
+    The API's ``monitor_batch_executions`` periodic task downloads this
+    file when AWS Batch reports the job as SUCCEEDED.
+    """
+    _require_var(PARAMS_S3_PREFIX, "PARAMS_S3_PREFIX")
+    _require_var(EXECUTION_ID, "EXECUTION_ID")
+    _require_var(PARAMS_S3_BUCKET, "PARAMS_S3_BUCKET")
+    key = PARAMS_S3_PREFIX + "/" + EXECUTION_ID + "_results.json.gz"
+    s3 = boto3.client("s3")
+    s3.upload_file(str(local_path), PARAMS_S3_BUCKET, key)
+    logger.info("Results uploaded to s3://%s/%s", PARAMS_S3_BUCKET, key)
+
+
+def put_results(results_dict):
+    """Serialise *results_dict* as compressed JSON and upload to S3.
+
+    This is the upload counterpart of :func:`get_params`.  Script
+    containers running on AWS Batch call this to deposit their results;
+    the API's ``monitor_batch_executions`` task retrieves the file and
+    updates the ``Execution`` record.
+    """
+    with tempfile.TemporaryDirectory() as temp_dir:
+        gz_path = Path(temp_dir) / (str(EXECUTION_ID) + "_results.json.gz")
+        data = json.dumps(results_dict, cls=UUIDEncoder).encode("utf-8")
+        with gzip.open(gz_path, "wb") as fout:
+            fout.write(data)
+        _put_results_to_s3(gz_path)
+
+
 @retry_api_call(max_duration_minutes=2, max_attempts=5)
 def patch_execution(json):
     _require_var(API_URL, "API_URL")

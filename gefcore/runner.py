@@ -266,7 +266,9 @@ def run():
     from gefcore import _get_rollbar_extra_data
 
     git_sha = os.getenv("GIT_SHA", "unknown")
-    logger.info(f"Starting execution (trends.earth-Environment git SHA: {git_sha}, EE API {ee.__version__})")
+    logger.info(
+        f"Starting execution (trends.earth-Environment git SHA: {git_sha}, EE API {ee.__version__})"
+    )
 
     try:
         # Some scripts (e.g. the avoided-emissions R pipeline) do not use

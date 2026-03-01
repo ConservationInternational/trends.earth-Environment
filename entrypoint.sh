@@ -9,6 +9,19 @@ if [ "$TESTING" = "true" ] || [ "$ENV" = "test" ]; then
     exec "$@"
 fi
 
+# Skip GEE credential checks when the script does not need Earth Engine.
+# The API sets SKIP_GEE_INIT=true for non-GEE scripts (e.g. R pipelines).
+# gefcore.runner also respects REQUIRES_GEE on the script module, but
+# entrypoint.sh runs before Python and would otherwise abort the container.
+if [ "$SKIP_GEE_INIT" = "true" ] || [ "$SKIP_GEE_INIT" = "1" ] || [ "$SKIP_GEE_INIT" = "yes" ]; then
+    echo "Skipping GEE credential validation (SKIP_GEE_INIT=$SKIP_GEE_INIT)"
+    if [ $# -eq 0 ]; then
+        exec python main.py
+    else
+        exec "$@"
+    fi
+fi
+
 # Check for OAuth credentials first
 if [ -n "$GEE_OAUTH_ACCESS_TOKEN" ] && [ -n "$GEE_OAUTH_REFRESH_TOKEN" ]; then
     echo "Using OAuth credentials for GEE authentication"
