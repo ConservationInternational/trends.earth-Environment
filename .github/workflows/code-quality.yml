@@ -73,7 +73,7 @@ jobs:
         pip-audit --requirement=requirements.txt || echo "pip-audit scan completed with warnings"
 
     - name: Upload security reports
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: security-reports
