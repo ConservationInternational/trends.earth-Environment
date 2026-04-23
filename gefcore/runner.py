@@ -39,15 +39,18 @@ def initialize_earth_engine():
     """Initialize Google Earth Engine with available credentials (OAuth or service account)."""
     logger.info("Starting Earth Engine initialization...")
 
-    # Try OAuth credentials first (if available)
+    # If OAuth credentials are present, use them exclusively — do not fall back.
     if os.getenv("GEE_OAUTH_ACCESS_TOKEN") and os.getenv("GEE_OAUTH_REFRESH_TOKEN"):
         logger.info("Found OAuth credentials, attempting OAuth authentication...")
         if _initialize_ee_with_oauth():
             logger.info("Successfully authenticated with Earth Engine using OAuth")
             return
-        logger.warning("OAuth authentication failed, falling back to service account")
+        raise RuntimeError(
+            "OAuth credentials were provided but authentication failed. "
+            "Check GEE_OAUTH_ACCESS_TOKEN and GEE_OAUTH_REFRESH_TOKEN."
+        )
 
-    # Fall back to service account authentication
+    # No OAuth credentials — try service account authentication
     if os.getenv("EE_SERVICE_ACCOUNT_JSON") or _has_gee_service_account_file():
         logger.info("Attempting service account authentication...")
         if _initialize_ee_with_service_account():
