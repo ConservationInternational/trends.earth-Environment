@@ -171,13 +171,22 @@ def _initialize_ee_with_oauth():
                 _refresh_err,
             )
 
-        # Initialize Earth Engine with OAuth credentials.
-        # Do NOT pass project=GOOGLE_PROJECT_ID here — that is the server's
-        # GCP project used by the default service account.  Passing it to a
-        # per-user OAuth credential causes a permission error unless the user
-        # has been granted serviceusage.serviceUsageConsumer on that project.
-        # Instead let EE use the user's own default GEE cloud project.
-        ee.Initialize(credentials, opt_url=GEE_ENDPOINT)
+        # Initialize Earth Engine with the user's own GCP project so API calls
+        # are billed to their project, not the server's.  GEE_CLOUD_PROJECT is
+        # injected into the container environment by the API when the user has
+        # selected a project via the OAuth callback page.  Without an explicit
+        # project, the EE SDK derives the project from the OAuth client_id
+        # (parsing its numeric prefix), which resolves to the server's GCP
+        # project — a project the OAuth user doesn't have
+        # serviceusage.serviceUsageConsumer on.
+        cloud_project = os.getenv("GEE_CLOUD_PROJECT")
+        if not cloud_project:
+            raise RuntimeError(
+                "GEE_CLOUD_PROJECT is not set. "
+                "Please select your GCP project in the app after connecting "
+                "your Google Earth Engine account via OAuth."
+            )
+        ee.Initialize(credentials, project=cloud_project, opt_url=GEE_ENDPOINT)
         logger.info("Earth Engine OAuth authentication successful")
         return True
 
