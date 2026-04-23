@@ -46,7 +46,7 @@ def initialize_earth_engine():
         logger.warning("OAuth authentication failed, falling back to service account")
 
     # Fall back to service account authentication
-    if os.getenv("EE_SERVICE_ACCOUNT_JSON") or _has_service_account_file():
+    if os.getenv("EE_SERVICE_ACCOUNT_JSON") or _has_gee_service_account_file():
         logger.info("Attempting service account authentication...")
         if _initialize_ee_with_service_account():
             logger.info(
@@ -64,7 +64,7 @@ def initialize_earth_engine():
         {
             "oauth_available": bool(os.getenv("GEE_OAUTH_ACCESS_TOKEN")),
             "service_account_available": bool(
-                os.getenv("EE_SERVICE_ACCOUNT_JSON") or _has_service_account_file()
+                os.getenv("EE_SERVICE_ACCOUNT_JSON") or _has_gee_service_account_file()
             ),
             "error_location": "initialize_earth_engine",
         }
@@ -76,7 +76,68 @@ def initialize_earth_engine():
     raise RuntimeError(error_msg)
 
 
-def _has_service_account_file():
+def initialize_openeo_connection():
+    """Initialize and authenticate an openEO connection from environment variables.
+
+    Reads ``OPENEO_BACKEND_URL`` (default: ``https://openeo.vito.be``) and
+    ``OPENEO_CREDENTIALS`` (a JSON blob) from the environment and returns an
+    authenticated :class:`openeo.Connection`.
+
+    Supported credential types (``"type"`` key in the JSON):
+
+    * ``"oidc_refresh_token"`` (default) — OIDC refresh-token flow.
+    * ``"basic"`` — username/password authentication.
+
+    Returns:
+        openeo.Connection: A connected (and, when credentials are present,
+        authenticated) openEO connection.
+
+    Raises:
+        RuntimeError: If the ``openeo`` package is not installed.
+    """
+    import json as _json
+
+    try:
+        import openeo  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError(
+            "The 'openeo' package is required for openEO execution. "
+            "Install it with: pip install openeo"
+        ) from exc
+
+    backend_url = os.getenv("OPENEO_BACKEND_URL", "https://openeo.vito.be")
+    logger.info("Connecting to openEO backend: %s", backend_url)
+    connection = openeo.connect(backend_url)
+
+    creds_json = os.getenv("OPENEO_CREDENTIALS")
+    if creds_json:
+        try:
+            creds = _json.loads(creds_json)
+            cred_type = creds.get("type", "oidc_refresh_token")
+            if cred_type == "oidc_refresh_token":
+                connection.authenticate_oidc_refresh_token(
+                    client_id=creds.get("client_id", ""),
+                    client_secret=creds.get("client_secret", ""),
+                    refresh_token=creds.get("refresh_token", ""),
+                    provider_id=creds.get("provider_id", "egi"),
+                )
+                logger.info("Authenticated to openEO backend with OIDC refresh token")
+            elif cred_type == "basic":
+                connection.authenticate_basic(
+                    creds.get("username", ""), creds.get("password", "")
+                )
+                logger.info("Authenticated to openEO backend with basic credentials")
+            else:
+                logger.warning("Unknown openEO credential type: %s", cred_type)
+        except Exception as exc:
+            logger.warning("Could not authenticate to openEO backend: %s", exc)
+    else:
+        logger.info("No OPENEO_CREDENTIALS set, proceeding without authentication")
+
+    return connection
+
+
+def _has_gee_service_account_file():
     """Check if service account file exists."""
     service_account_path = os.path.join(PROJECT_DIR, "service_account.json")
     return os.path.exists(service_account_path)
@@ -99,8 +160,31 @@ def _initialize_ee_with_oauth():
             scopes=["https://www.googleapis.com/auth/earthengine"],
         )
 
-        # Initialize Earth Engine with OAuth credentials
-        ee.Initialize(credentials, project=GOOGLE_PROJECT_ID, opt_url=GEE_ENDPOINT)
+        # The token expiry is not persisted, so the Credentials object has no
+        # expiry metadata and won't auto-refresh before the first API call.
+        # Proactively refresh here so ee.Initialize always starts with a valid
+        # access token rather than relying on the EE SDK's 401-retry path.
+        try:
+            from google.auth.transport.requests import Request as _AuthRequest
+
+            credentials.refresh(_AuthRequest())
+            logger.info("OAuth access token refreshed successfully")
+        except Exception as _refresh_err:
+            # If refresh fails (e.g. transient network issue), log and continue.
+            # ee.Initialize + EE SDK AuthorizedSession will still handle a 401
+            # transparently on the first real API call.
+            logger.warning(
+                "Pre-refresh of OAuth token failed, will rely on EE SDK auto-retry: %s",
+                _refresh_err,
+            )
+
+        # Initialize Earth Engine with OAuth credentials.
+        # Do NOT pass project=GOOGLE_PROJECT_ID here — that is the server's
+        # GCP project used by the default service account.  Passing it to a
+        # per-user OAuth credential causes a permission error unless the user
+        # has been granted serviceusage.serviceUsageConsumer on that project.
+        # Instead let EE use the user's own default GEE cloud project.
+        ee.Initialize(credentials, opt_url=GEE_ENDPOINT)
         logger.info("Earth Engine OAuth authentication successful")
         return True
 
@@ -213,7 +297,7 @@ def _initialize_ee_with_service_account():
         extra_data = _get_rollbar_extra_data()
         extra_data.update(
             {
-                "service_account_file_exists": _has_service_account_file(),
+                "service_account_file_exists": _has_gee_service_account_file(),
                 "service_account_env_available": bool(
                     os.getenv("EE_SERVICE_ACCOUNT_JSON")
                 ),
