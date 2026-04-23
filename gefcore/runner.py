@@ -1,10 +1,12 @@
 """GEF CORE RUNNER"""
 
 import contextlib
+import json
 import logging
 import os
 
 import ee
+import openeo
 import rollbar
 
 from gefcore.api import get_params, patch_execution
@@ -92,19 +94,7 @@ def initialize_openeo_connection():
         openeo.Connection: A connected (and, when credentials are present,
         authenticated) openEO connection.
 
-    Raises:
-        RuntimeError: If the ``openeo`` package is not installed.
     """
-    import json as _json
-
-    try:
-        import openeo  # type: ignore
-    except ImportError as exc:
-        raise RuntimeError(
-            "The 'openeo' package is required for openEO execution. "
-            "Install it with: pip install openeo"
-        ) from exc
-
     backend_url = os.getenv("OPENEO_BACKEND_URL", "https://openeo.vito.be")
     logger.info("Connecting to openEO backend: %s", backend_url)
     connection = openeo.connect(backend_url)
@@ -112,7 +102,7 @@ def initialize_openeo_connection():
     creds_json = os.getenv("OPENEO_CREDENTIALS")
     if creds_json:
         try:
-            creds = _json.loads(creds_json)
+            creds = json.loads(creds_json)
             cred_type = creds.get("type", "oidc_refresh_token")
             if cred_type == "oidc_refresh_token":
                 connection.authenticate_oidc_refresh_token(
