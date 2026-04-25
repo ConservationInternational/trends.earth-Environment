@@ -150,10 +150,6 @@ def _initialize_ee_with_oauth():
             ),
             client_id=os.getenv("GOOGLE_OAUTH_CLIENT_ID"),
             client_secret=os.getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
-            scopes=[
-                "https://www.googleapis.com/auth/earthengine",
-                "https://www.googleapis.com/auth/devstorage.read_write",
-            ],
         )
 
         # The token expiry is not persisted, so the Credentials object has no
