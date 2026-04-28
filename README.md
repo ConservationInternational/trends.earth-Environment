@@ -1,5 +1,7 @@
 # trends.earth Environment
 
+[![Trends.Earth](https://s3.amazonaws.com/trends.earth/sharing/trends_earth_logo_bl_600width.png)](http://trends.earth)
+
 [![Tests](https://github.com/ConservationInternational/trends.earth-Environment/actions/workflows/tests.yml/badge.svg)](https://github.com/ConservationInternational/trends.earth-Environment/actions/workflows/tests.yml)
 [![Code Quality](https://github.com/ConservationInternational/trends.earth-Environment/actions/workflows/code-quality.yml/badge.svg)](https://github.com/ConservationInternational/trends.earth-Environment/actions/workflows/code-quality.yml)
 [![Security Scan](https://github.com/ConservationInternational/trends.earth-Environment/actions/workflows/security.yml/badge.svg)](https://github.com/ConservationInternational/trends.earth-Environment/actions/workflows/security.yml)
@@ -45,11 +47,6 @@ build.bat
 ```
 
 These scripts build the Docker image tagged as `conservationinternational/trends.earth-environment:<version>` and push it to Docker Hub.
-
-## Related Projects
-
-- [trends.earth API](https://github.com/ConservationInternational/trends.earth-API) - Backend API service
-- [trends.earth CLI](https://github.com/ConservationInternational/trends.earth-CLI) - Command-line interface
 
 ## Developing Custom Scripts
 
@@ -367,6 +364,21 @@ docker run --rm -v $(pwd):/workspace aquasec/trivy fs /workspace
 7. Push to the branch (`git push origin feature/amazing-feature`)
 8. Open a Pull Request
 
+## Related Projects
+
+`Trends.Earth` is built from a set of interconnected repositories:
+
+- [trends.earth](https://github.com/ConservationInternational/trends.earth) — QGIS plugin for land degradation monitoring
+- [trends.earth-schemas](https://github.com/ConservationInternational/trends.earth-schemas) — Data schemas for analysis results
+- [trends.earth-algorithms](https://github.com/ConservationInternational/trends.earth-algorithms) — Core analysis algorithms
+- [trends.earth-API](https://github.com/ConservationInternational/trends.earth-API) — Backend REST API
+- [trends.earth-CLI](https://github.com/ConservationInternational/trends.earth-CLI) — Command-line interface for developing custom scripts
+- [trends.earth-api-ui](https://github.com/ConservationInternational/trends.earth-api-ui) — Web UI for API management
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+[![Part of Trends.Earth](https://s3.amazonaws.com/trends.earth/sharing/trends_earth_logo_bl_600width.png)](http://trends.earth)
