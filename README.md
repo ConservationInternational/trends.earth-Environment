@@ -378,7 +378,3 @@ docker run --rm -v $(pwd):/workspace aquasec/trivy fs /workspace
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-[![Part of Trends.Earth](https://s3.amazonaws.com/trends.earth/sharing/trends_earth_logo_bl_600width.png)](http://trends.earth)
