@@ -14,8 +14,11 @@ from gefcore.loggers import get_logger
 
 try:
     from gefcore.script import main
-except ImportError:
+except ImportError as _main_import_error:
     main = None
+    _main_import_error_msg = str(_main_import_error)
+else:
+    _main_import_error_msg = None
 
 # Note: Rollbar is already initialized in gefcore/__init__.py.
 # We only need access to the rollbar module here for reporting - no need to re-init.
@@ -394,7 +397,10 @@ def run():
             params["EXECUTION_ID"] = os.getenv("EXECUTION_ID", None)
 
         if main is None:
-            raise ImportError("gefcore.script.main module not found")
+            detail = (
+                f": {_main_import_error_msg}" if _main_import_error_msg else ""
+            )
+            raise ImportError(f"gefcore.script.main module not found{detail}")
 
         result = main.run(params, logger)
         logger.info("Execution completed successfully")
