@@ -397,9 +397,7 @@ def run():
             params["EXECUTION_ID"] = os.getenv("EXECUTION_ID", None)
 
         if main is None:
-            detail = (
-                f": {_main_import_error_msg}" if _main_import_error_msg else ""
-            )
+            detail = f": {_main_import_error_msg}" if _main_import_error_msg else ""
             raise ImportError(f"gefcore.script.main module not found{detail}")
 
         result = main.run(params, logger)
