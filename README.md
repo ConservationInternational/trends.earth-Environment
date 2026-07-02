@@ -107,7 +107,7 @@ The `configuration.json` file defines script metadata and environment requiremen
 {
     "name": "sdg-15-3-1-indicator 2_1_17",
     "environment": "trends.earth-environment", 
-    "environment_version": "2.3.0"
+    "environment_version": "2.3.1"
 }
 ```
 
