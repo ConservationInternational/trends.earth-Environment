@@ -16,6 +16,9 @@ RUN apt-get update && \
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
+# Upgrade pip to a patched version (addresses pip sdist/tar CVEs).
+RUN pip install --no-cache-dir --upgrade "pip>=26.1.2"
+
 RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
 ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US:en
