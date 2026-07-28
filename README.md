@@ -73,30 +73,27 @@ Every script must implement a `run(params, logger)` function in `src/main.py`:
 def run(params, logger):
     """
     Main script execution function.
-    
+
     Args:
         params (dict): Parameters passed from the API/UI
         logger: Pre-configured logger instance for progress reporting
-    
+
     Returns:
         dict: Results to be sent back to the API
     """
     # Your script logic here
     logger.info("Script started")
-    
+
     # Access input parameters
-    area_of_interest = params.get('geometry')
-    start_date = params.get('start_date')
-    end_date = params.get('end_date')
-    
+    area_of_interest = params.get("geometry")
+    start_date = params.get("start_date")
+    end_date = params.get("end_date")
+
     # Your analysis logic using Google Earth Engine, NumPy, etc.
     result = perform_analysis(area_of_interest, start_date, end_date)
-    
+
     logger.info("Analysis complete")
-    return {
-        'status': 'success',
-        'results': result
-    }
+    return {"status": "success", "results": result}
 ```
 
 ### Configuration File
@@ -152,43 +149,45 @@ Scripts running in this environment have access to:
 ```python
 import numpy as np
 
+
 def run(params, logger):
     logger.info("Starting NumPy analysis")
-    
-    data = np.array(params.get('input_data', []))
+
+    data = np.array(params.get("input_data", []))
     result = np.mean(data)
-    
+
     logger.info(f"Calculated mean: {result}")
-    return {'mean': result}
+    return {"mean": result}
 ```
 
 #### Google Earth Engine Analysis
 ```python
 import ee
 
+
 def run(params, logger):
     logger.info("Starting GEE analysis")
-    
+
     # Get area of interest
-    geometry = ee.Geometry(params['geometry'])
-    
+    geometry = ee.Geometry(params["geometry"])
+
     # Load satellite data
-    collection = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2') \
-        .filterBounds(geometry) \
-        .filterDate(params['start_date'], params['end_date'])
-    
+    collection = (
+        ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
+        .filterBounds(geometry)
+        .filterDate(params["start_date"], params["end_date"])
+    )
+
     # Perform analysis
     mean_image = collection.mean()
-    
+
     # Extract statistics
     stats = mean_image.reduceRegion(
-        reducer=ee.Reducer.mean(),
-        geometry=geometry,
-        scale=30
+        reducer=ee.Reducer.mean(), geometry=geometry, scale=30
     ).getInfo()
-    
+
     logger.info("Analysis complete")
-    return {'statistics': stats}
+    return {"statistics": stats}
 ```
 
 ### Script Development Workflow
