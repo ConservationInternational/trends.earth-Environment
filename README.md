@@ -230,7 +230,7 @@ def run(params, logger):
 
 ### Prerequisites
 
-- Python 3.10+ 
+- Python 3.12+
 - Docker (for containerized development)
 - Google Earth Engine service account (for production use)
 
